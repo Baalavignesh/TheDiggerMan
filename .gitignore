@@ -10,5 +10,8 @@ webroot
 dist
 .env
 
+# AI assistant files
 claude.md
 agents.md
+.cursor
+.cursorignore

@@ -33,6 +33,17 @@ router.get('/api/init', async (_req, res): Promise<void> => {
       return;
     }
 
+    // Get Reddit username
+    let username = 'anonymous';
+    try {
+      const currentUser = await reddit.getCurrentUser();
+      if (currentUser?.username) {
+        username = currentUser.username;
+      }
+    } catch (e) {
+      console.error('Failed to get current user:', e);
+    }
+
     // Get saved game state
     const saveKey = `gameState:${postId}:${userId || 'anonymous'}`;
     const savedStateStr = await redis.get(saveKey);
@@ -44,6 +55,16 @@ router.get('/api/init', async (_req, res): Promise<void> => {
       } catch (e) {
         console.error('Failed to parse saved game state:', e);
       }
+    }
+
+    // If no saved game state, initialize with Reddit username
+    if (!gameState) {
+      gameState = {
+        playerName: username,
+      };
+    } else if (!gameState.playerName) {
+      // Update existing game state with username if missing
+      gameState.playerName = username;
     }
 
     // Get leaderboard (top 10 for each category) - use per-post keys like old game
@@ -95,6 +116,13 @@ router.get('/api/init', async (_req, res): Promise<void> => {
       const playerMoneyRank = await redis.zRank(moneyKey, gameState.playerName, { reverse: true });
       if (playerMoneyRank !== undefined) {
         playerStanding = playerMoneyRank + 1;
+      }
+
+      // Auto-register username in name index if not already registered
+      const nameIndexKey = `leaderboard:${postId}:name`;
+      const existingOwner = await redis.hGet(nameIndexKey, gameState.playerName.toLowerCase());
+      if (!existingOwner) {
+        await redis.hSet(nameIndexKey, { [gameState.playerName.toLowerCase()]: gameState.playerName });
       }
     }
 

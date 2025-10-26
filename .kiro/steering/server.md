@@ -1,7 +1,6 @@
 ---
-description:
-globs: src/server/**/*
-alwaysApply: false
+inclusion: fileMatch
+fileMatchPattern: ['src/server/**/*']
 ---
 
 Guidelines:

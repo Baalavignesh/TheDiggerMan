@@ -24,16 +24,7 @@ const MAX_FALLING_ORES = 40;
 const isMobileDevice = () =>
   typeof window !== 'undefined' && window.matchMedia('(any-pointer: coarse)').matches;
 
-const sanitizePlayerName = (raw: string): string | null => {
-  const trimmed = raw.trim();
-  if (trimmed.length < 3 || trimmed.length > 16) {
-    return null;
-  }
-  if (/[^a-zA-Z0-9 _-]/.test(trimmed)) {
-    return null;
-  }
-  return trimmed;
-};
+// sanitizePlayerName removed - using Reddit username directly
 
 if (typeof window !== 'undefined') {
   try {
@@ -111,6 +102,8 @@ interface AppState extends GameState {
   unlockedAchievements: Set<string>;
   playerName?: string;
 }
+
+// Removed sanitizePlayerName - using Reddit username directly
 
 // Format large numbers for display
 function formatNumber(num: number): string {
@@ -196,9 +189,6 @@ export const App = () => {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [playerStanding, setPlayerStanding] = useState<number | null>(null);
   const [approxRates, setApproxRates] = useState({ moneyPerSecond: 0, depthPerSecond: 0 });
-  const [playerNameInput, setPlayerNameInput] = useState('');
-  const [playerNameError, setPlayerNameError] = useState('');
-  const [isRegisteringName, setIsRegisteringName] = useState(false);
   const [manualSavePending, setManualSavePending] = useState(false);
   const [lastSaveTimestamp, setLastSaveTimestamp] = useState<number | null>(null);
 
@@ -210,13 +200,7 @@ export const App = () => {
     musicEnabledRef.current = musicEnabled;
   }, [musicEnabled]);
 
-  const showNamePrompt = !gameState.playerName;
-
-  useEffect(() => {
-    if (gameState.playerName) {
-      setPlayerNameInput(gameState.playerName);
-    }
-  }, [gameState.playerName]);
+  // Reddit username is automatically set from server
 
   const [shopTab, setShopTab] = useState<'tools' | 'diggers'>('tools');
   const [infoTab, setInfoTab] = useState<'ores' | 'biomes'>('ores');
@@ -395,42 +379,7 @@ export const App = () => {
     sendSaveGame(true);
   }, [playSelectSound, sendSaveGame]);
 
-  const handleNameSubmit = useCallback(
-    async (event?: React.FormEvent) => {
-      if (event) {
-        event.preventDefault();
-      }
-
-      const sanitized = sanitizePlayerName(playerNameInput);
-
-      if (!sanitized) {
-        setPlayerNameError('Pick a name 3-16 chars long using letters, numbers, spaces, - or _.');
-        return;
-      }
-
-      setIsRegisteringName(true);
-      setPlayerNameError('');
-
-      const response = await apiClient.register(sanitized);
-
-      setIsRegisteringName(false);
-
-      if (response.success && response.playerName) {
-        setGameState((prev) => ({ ...prev, playerName: response.playerName! }));
-        setPlayerNameInput(response.playerName);
-        setPlayerNameError('');
-        setShowCover(false);
-        if (backgroundMusic && musicEnabledRef.current) {
-          backgroundMusic.play().catch(() => {
-            /* Autoplay blocked */
-          });
-        }
-      } else if (!response.success && response.error) {
-        setPlayerNameError(response.error);
-      }
-    },
-    [playerNameInput]
-  );
+  // Name submit handler removed - using Reddit username directly
 
   // Reset game function
   const handleResetGame = useCallback(async () => {
@@ -858,22 +807,26 @@ export const App = () => {
     };
   }, [gameState.autoDiggers, createFallingOres]);
 
-  // Auto-save every 5 seconds
+  // Store the latest sendSaveGame function in a ref
+  const sendSaveGameRef = useRef(sendSaveGame);
+  useEffect(() => {
+    sendSaveGameRef.current = sendSaveGame;
+  }, [sendSaveGame]);
+
+  // Auto-save every 30 seconds
   useEffect(() => {
     if (!ready || !gameState.playerName) {
       return;
     }
 
-    saveIntervalRef.current = setInterval(() => {
-      sendSaveGame(false);
-    }, 5000);
+    const intervalId = setInterval(() => {
+      sendSaveGameRef.current(false);
+    }, 30000); // 30 seconds
 
     return () => {
-      if (saveIntervalRef.current) {
-        clearInterval(saveIntervalRef.current);
-      }
+      clearInterval(intervalId);
     };
-  }, [ready, gameState.playerName, sendSaveGame]);
+  }, [ready, gameState.playerName]);
 
   // Initial setup
   useEffect(() => {
@@ -888,10 +841,6 @@ export const App = () => {
             discoveredBiomes: response.gameState.discoveredBiomes || new Set([1]),
             unlockedAchievements: response.gameState.unlockedAchievements || new Set(),
           });
-
-          if (response.gameState.playerName) {
-            setPlayerNameInput(response.gameState.playerName);
-          }
         }
 
         if (response.leaderboard) {
@@ -924,29 +873,7 @@ export const App = () => {
   return (
     <div className="app">
       <div className="game-box" style={{ backgroundColor: currentBiome.backgroundColor }}>
-        {showNamePrompt && (
-          <div className="name-overlay">
-            <form className="name-content" onSubmit={(event) => handleNameSubmit(event)}>
-              <h2 className="name-title">Claim Your Digger Name</h2>
-              <p className="name-subtitle">Reserve a unique name to join the global leaderboard.</p>
-              <input
-                className="name-input"
-                value={playerNameInput}
-                onChange={(event) => setPlayerNameInput(event.target.value)}
-                maxLength={16}
-                placeholder="e.g. CoreCrusher"
-                disabled={isRegisteringName}
-              />
-              {playerNameError && <div className="name-error">{playerNameError}</div>}
-              <button className="pixel-btn name-submit" type="submit" disabled={isRegisteringName}>
-                {isRegisteringName ? 'Registering…' : 'Enter the Mines'}
-              </button>
-              <p className="name-hint">Names must be unique. Letters, numbers, spaces, dashes, and underscores only.</p>
-            </form>
-          </div>
-        )}
-
-        {showCover && !showNamePrompt && (
+        {showCover && (
           <div className="cover-screen">
             {/* Background decorative elements */}
             <div className="cover-background-elements">

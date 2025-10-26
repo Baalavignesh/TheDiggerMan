@@ -1,7 +1,6 @@
 ---
-description: Use when writing webview code
-globs: src/client/**/*
-alwaysApply: false
+inclusion: fileMatch
+fileMatchPattern: ['src/client/**/*']
 ---
 Guidelines:
 - Use NPM dependencies if needed, ensure they are web compatible
