@@ -835,11 +835,29 @@ export const App = () => {
         const response = await apiClient.init();
 
         if (response.gameState) {
+          // Ensure playerName is always set
+          const playerName = response.gameState.playerName || 'Anonymous Player';
+
           setGameState({
             ...response.gameState,
+            playerName, // Ensure playerName is always set
             discoveredOres: response.gameState.discoveredOres || new Set(['dirt']),
             discoveredBiomes: response.gameState.discoveredBiomes || new Set([1]),
             unlockedAchievements: response.gameState.unlockedAchievements || new Set(),
+          });
+        } else {
+          // If no game state returned, initialize with defaults
+          setGameState({
+            money: 0,
+            depth: 0,
+            currentTool: 'hand',
+            autoDiggers: {},
+            oreInventory: {},
+            discoveredOres: new Set(['dirt']),
+            discoveredBiomes: new Set([1]),
+            totalClicks: 0,
+            unlockedAchievements: new Set(),
+            playerName: 'Anonymous Player',
           });
         }
 
@@ -854,6 +872,19 @@ export const App = () => {
         setReady(true);
       } catch (error) {
         console.error('Failed to initialize game:', error);
+        // Initialize with fallback state even if API fails
+        setGameState({
+          money: 0,
+          depth: 0,
+          currentTool: 'hand',
+          autoDiggers: {},
+          oreInventory: {},
+          discoveredOres: new Set(['dirt']),
+          discoveredBiomes: new Set([1]),
+          totalClicks: 0,
+          unlockedAchievements: new Set(),
+          playerName: 'Anonymous Player',
+        });
         setReady(true);
       }
     };

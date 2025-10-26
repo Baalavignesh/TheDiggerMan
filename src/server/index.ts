@@ -133,7 +133,23 @@ router.get('/api/init', async (_req, res): Promise<void> => {
     });
   } catch (error) {
     console.error('Failed to initialize game:', error);
-    res.status(500).json({ error: 'Failed to initialize game' });
+    // Return a default game state even on error to allow game to still load
+    res.json({
+      gameState: {
+        playerName: 'Anonymous Player',
+        money: 0,
+        depth: 0,
+        currentTool: 'hand',
+        autoDiggers: {},
+        oreInventory: {},
+        discoveredOres: ['dirt'],
+        discoveredBiomes: [1],
+        totalClicks: 0,
+        unlockedAchievements: [],
+      },
+      leaderboard: [],
+      playerStanding: null,
+    });
   }
 });
 
