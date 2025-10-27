@@ -406,6 +406,7 @@ export const App = () => {
 
   // Calculate total auto-digger production
   const totalDepthProduction = useMemo(() => {
+    if (!gameState.autoDiggers) return 0;
     return AUTO_DIGGERS.reduce((total, digger) => {
       const count = gameState.autoDiggers[digger.id] || 0;
       return total + digger.depthPerSecond * count;
@@ -522,6 +523,7 @@ export const App = () => {
   // Handle ore click
   const handleOreClick = useCallback(() => {
     const ore = ORES[currentOreId];
+    if (!ore || !currentTool) return; // Safety check
     const bonusMoney = Math.floor(ore.value * currentTool.bonusMultiplier);
 
     playMiningSoundCallback();
@@ -763,6 +765,8 @@ export const App = () => {
             const ore = ORES[prev[diggerId].currentOre.id];
             const currentOreId = prev[diggerId].currentOre.id;
 
+            if (!ore) return prev; // Safety check: ore must exist
+
             createFallingOres(currentOreId);
 
             setGameState((prevState) => {
@@ -835,22 +839,27 @@ export const App = () => {
         const response = await apiClient.init();
 
         if (response.gameState) {
-          // Ensure playerName is always set
+          // Ensure all required fields are set with proper defaults
           const playerName = response.gameState.playerName || 'Anonymous Player';
 
           setGameState({
-            ...response.gameState,
-            playerName, // Ensure playerName is always set
+            money: response.gameState.money || 0,
+            depth: response.gameState.depth || 0,
+            currentTool: response.gameState.currentTool || 'dirt_pickaxe',
+            autoDiggers: response.gameState.autoDiggers || {},
+            oreInventory: response.gameState.oreInventory || {},
             discoveredOres: response.gameState.discoveredOres || new Set(['dirt']),
             discoveredBiomes: response.gameState.discoveredBiomes || new Set([1]),
+            totalClicks: response.gameState.totalClicks || 0,
             unlockedAchievements: response.gameState.unlockedAchievements || new Set(),
+            playerName,
           });
         } else {
           // If no game state returned, initialize with defaults
           setGameState({
             money: 0,
             depth: 0,
-            currentTool: 'hand',
+            currentTool: 'dirt_pickaxe',
             autoDiggers: {},
             oreInventory: {},
             discoveredOres: new Set(['dirt']),
@@ -876,7 +885,7 @@ export const App = () => {
         setGameState({
           money: 0,
           depth: 0,
-          currentTool: 'hand',
+          currentTool: 'dirt_pickaxe',
           autoDiggers: {},
           oreInventory: {},
           discoveredOres: new Set(['dirt']),
@@ -998,7 +1007,7 @@ export const App = () => {
           >
             <i className="fas fa-crown"></i>
           </button>
-          <button className="pixel-btn menu-btn" onClick={() => { playSelectSound(); setShowMenu(true); }}>
+          <button className="pixel-btn icon-btn menu-btn" onClick={() => { playSelectSound(); setShowMenu(true); }}>
             <i className="fas fa-bars"></i>
           </button>
         </div>

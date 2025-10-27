@@ -139,7 +139,7 @@ router.get('/api/init', async (_req, res): Promise<void> => {
         playerName: 'Anonymous Player',
         money: 0,
         depth: 0,
-        currentTool: 'hand',
+        currentTool: 'dirt_pickaxe',
         autoDiggers: {},
         oreInventory: {},
         discoveredOres: ['dirt'],
