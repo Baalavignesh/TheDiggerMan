@@ -22,106 +22,6 @@ const MINING_SOUND_THROTTLE = 50;
 const MAX_ACTIVE_SPARKS = 30;
 const MAX_FALLING_ORES = 40;
 
-const SCREEN_MODE_VALUES = ['mobile', 'desktop', 'fullscreen'] as const;
-type ScreenMode = (typeof SCREEN_MODE_VALUES)[number];
-
-const normalizeScreenMode = (value: unknown): ScreenMode | null => {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const normalized = value.trim().toLowerCase();
-  return (SCREEN_MODE_VALUES as readonly string[]).includes(normalized)
-    ? (normalized as ScreenMode)
-    : null;
-};
-
-const fallbackScreenModeFromViewport = (): ScreenMode => {
-  if (typeof window === 'undefined') {
-    return 'desktop';
-  }
-
-  const doc = typeof document !== 'undefined' ? document : null;
-  const width = window.innerWidth || doc?.documentElement?.clientWidth || 0;
-  const height = window.innerHeight || doc?.documentElement?.clientHeight || 0;
-
-  if (width === 0 && height === 0) {
-    return 'desktop';
-  }
-
-  if (width <= 640) {
-    return 'mobile';
-  }
-
-  if (width >= 1200 || height >= 900) {
-    return 'fullscreen';
-  }
-
-  return 'desktop';
-};
-
-const detectScreenMode = (): ScreenMode => {
-  if (typeof window === 'undefined') {
-    return 'desktop';
-  }
-
-  const candidates: unknown[] = [];
-
-  if (typeof document !== 'undefined') {
-    candidates.push(document.body?.dataset?.screenMode);
-    candidates.push(document.documentElement?.dataset?.screenMode);
-  }
-
-  const searchParams = new URLSearchParams(window.location.search);
-  candidates.push(searchParams.get('screenMode'));
-  candidates.push(searchParams.get('screen'));
-
-  const devvitWindow = window as typeof window & {
-    __devvitScreenMode__?: unknown;
-    __DEVVIT_SCREEN_MODE__?: unknown;
-    __devvit_screen_mode__?: unknown;
-  };
-
-  candidates.push(devvitWindow.__devvitScreenMode__);
-  candidates.push(devvitWindow.__DEVVIT_SCREEN_MODE__);
-  candidates.push(devvitWindow.__devvit_screen_mode__);
-
-  try {
-    candidates.push(window.localStorage?.getItem('devvit:screenMode'));
-  } catch (err) {
-    // Ignore storage access issues (Safari private mode, etc.)
-  }
-
-  for (const candidate of candidates) {
-    const mode = normalizeScreenMode(candidate);
-    if (mode) {
-      return mode;
-    }
-  }
-
-  return fallbackScreenModeFromViewport();
-};
-
-const extractScreenModeFromMessage = (event: MessageEvent): ScreenMode | null => {
-  const { data } = event;
-
-  if (!data) {
-    return null;
-  }
-
-  if (typeof data === 'string') {
-    return normalizeScreenMode(data);
-  }
-
-  if (typeof data === 'object') {
-    const possibleMode =
-      (data as { screenMode?: unknown; screen?: unknown }).screenMode ??
-      (data as { screenMode?: unknown; screen?: unknown }).screen;
-    return normalizeScreenMode(possibleMode);
-  }
-
-  return null;
-};
-
 const isMobileDevice = () =>
   typeof window !== 'undefined' && window.matchMedia('(any-pointer: coarse)').matches;
 
@@ -313,11 +213,6 @@ export const App = () => {
   const [approxRates, setApproxRates] = useState({ moneyPerSecond: 0, depthPerSecond: 0 });
   const [manualSavePending, setManualSavePending] = useState(false);
   const [lastSaveTimestamp, setLastSaveTimestamp] = useState<number | null>(null);
-  const [screenMode, setScreenMode] = useState<ScreenMode>(() => detectScreenMode());
-
-  const applyScreenMode = useCallback((nextMode: ScreenMode) => {
-    setScreenMode(prev => (prev === nextMode ? prev : nextMode));
-  }, []);
 
   // Glory Pickaxe state
   const [gloryPickaxeVisible, setGloryPickaxeVisible] = useState(false);
@@ -332,55 +227,6 @@ export const App = () => {
   useEffect(() => {
     musicEnabledRef.current = musicEnabled;
   }, [musicEnabled]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined' || !document.body) {
-      return;
-    }
-
-    document.body.dataset.screenMode = screenMode;
-  }, [screenMode]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const handleResize = () => {
-      applyScreenMode(detectScreenMode());
-    };
-
-    const handleMessage = (event: MessageEvent) => {
-      const modeFromMessage = extractScreenModeFromMessage(event);
-      if (modeFromMessage) {
-        applyScreenMode(modeFromMessage);
-      }
-    };
-
-    handleResize();
-
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('message', handleMessage);
-
-    let observer: MutationObserver | null = null;
-
-    if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined' && document.body) {
-      observer = new MutationObserver(() => {
-        applyScreenMode(detectScreenMode());
-      });
-
-      observer.observe(document.body, {
-        attributes: true,
-        attributeFilter: ['data-screen-mode', 'class'],
-      });
-    }
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('message', handleMessage);
-      observer?.disconnect();
-    };
-  }, [applyScreenMode]);
 
   // Reddit username is automatically set from server
 
@@ -1302,18 +1148,16 @@ export const App = () => {
           >
             <i className="fas fa-save"></i>
           </button>
-          {screenMode !== 'mobile' && (
-            <button
-              className="pixel-btn icon-btn auto-diggers-viewer-icon"
-              title="My Auto-Diggers"
-              onClick={() => {
-                playSelectSound();
-                setShowAutoDiggersViewer(true);
-              }}
-            >
-              <i className="fas fa-robot"></i>
-            </button>
-          )}
+          <button
+            className="pixel-btn icon-btn auto-diggers-viewer-icon"
+            title="My Auto-Diggers"
+            onClick={() => {
+              playSelectSound();
+              setShowAutoDiggersViewer(true);
+            }}
+          >
+            <i className="fas fa-robot"></i>
+          </button>
           <button
             className="pixel-btn icon-btn leaderboard-icon"
             title="Leaderboard"
