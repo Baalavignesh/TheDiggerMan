@@ -2748,6 +2748,186 @@ i, .fa, .fas, .far, .fab {
   }
 }
 
+/* Glory Pickaxe */
+.glory-pickaxe {
+  position: absolute;
+  z-index: 9999;
+  cursor: pointer;
+  animation: gloryFadeInOut 8s ease-in-out;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+
+.glory-pickaxe img {
+  width: 120px;
+  height: 120px;
+  filter: drop-shadow(0 0 40px rgba(255, 215, 0, 1))
+          drop-shadow(0 0 80px rgba(255, 215, 0, 0.8))
+          drop-shadow(0 0 120px rgba(255, 215, 0, 0.6));
+  animation: gloryPulse 1.5s ease-in-out infinite;
+}
+
+.glory-pickaxe:hover img {
+  transform: scale(1.4) rotate(10deg);
+  filter: drop-shadow(0 0 50px rgba(255, 215, 0, 1))
+          drop-shadow(0 0 100px rgba(255, 215, 0, 0.9))
+          drop-shadow(0 0 150px rgba(255, 215, 0, 0.7));
+}
+
+@keyframes gloryFadeInOut {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  10% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  90% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+}
+
+@keyframes gloryPulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.1) rotate(5deg);
+  }
+}
+
+/* Glory Buff Active - Character Glow */
+.glory-buff-active .character-container {
+  filter: drop-shadow(0 0 30px rgba(255, 215, 0, 1))
+          drop-shadow(0 0 60px rgba(255, 215, 0, 0.8))
+          drop-shadow(0 0 90px rgba(255, 215, 0, 0.6));
+  animation: gloryCharacterGlow 1.5s ease-in-out infinite;
+}
+
+@keyframes gloryCharacterGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 30px rgba(255, 215, 0, 1))
+            drop-shadow(0 0 60px rgba(255, 215, 0, 0.8))
+            drop-shadow(0 0 90px rgba(255, 215, 0, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 40px rgba(255, 215, 0, 1))
+            drop-shadow(0 0 80px rgba(255, 215, 0, 1))
+            drop-shadow(0 0 120px rgba(255, 215, 0, 0.8));
+  }
+}
+
+/* Glory Buff Indicator */
+.glory-buff-indicator {
+  position: absolute;
+  top: 50%;
+  right: 30px;
+  transform: translateY(-50%);
+  z-index: 9998;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.95) 0%, rgba(255, 165, 0, 0.95) 100%);
+  border: 3px solid #fff;
+  border-radius: 12px;
+  padding: 16px;
+  color: #000;
+  font-weight: bold;
+  font-size: 18px;
+  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.9),
+              0 0 40px rgba(255, 215, 0, 0.6),
+              inset 0 2px 5px rgba(255, 255, 255, 0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 80px;
+  min-height: 80px;
+  justify-content: center;
+  animation: gloryIndicatorPulse 1s ease-in-out infinite;
+}
+
+@keyframes gloryIndicatorPulse {
+  0%, 100% {
+    transform: translateY(-50%) scale(1);
+    box-shadow: 0 6px 20px rgba(255, 215, 0, 0.9),
+                0 0 40px rgba(255, 215, 0, 0.6),
+                inset 0 2px 5px rgba(255, 255, 255, 0.4);
+  }
+  50% {
+    transform: translateY(-50%) scale(1.05);
+    box-shadow: 0 8px 25px rgba(255, 215, 0, 1),
+                0 0 50px rgba(255, 215, 0, 0.8),
+                inset 0 2px 5px rgba(255, 255, 255, 0.5);
+  }
+}
+
+.glory-buff-indicator span {
+  font-size: 22px;
+  font-weight: 900;
+  color: #000;
+  letter-spacing: 1px;
+}
+
+.glory-buff-timer {
+  font-size: 16px;
+  color: #600;
+  font-weight: bold;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 4px 10px;
+  border-radius: 6px;
+  min-width: 40px;
+  text-align: center;
+  border: 2px solid rgba(139, 69, 19, 0.3);
+}
+
+/* Glory Buff mobile adjustments */
+@media (max-width: 768px) {
+  .glory-buff-indicator {
+    top: 80px;
+    right: 10px;
+    transform: none;
+    padding: 12px;
+    font-size: 14px;
+    min-width: 70px;
+    min-height: 70px;
+  }
+
+  @keyframes gloryIndicatorPulse {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 6px 20px rgba(255, 215, 0, 0.9),
+                  0 0 40px rgba(255, 215, 0, 0.6),
+                  inset 0 2px 5px rgba(255, 255, 255, 0.4);
+    }
+    50% {
+      transform: scale(1.05);
+      box-shadow: 0 8px 25px rgba(255, 215, 0, 1),
+                  0 0 50px rgba(255, 215, 0, 0.8),
+                  inset 0 2px 5px rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  .glory-buff-indicator span {
+    font-size: 18px;
+  }
+
+  .glory-buff-timer {
+    font-size: 14px;
+    padding: 3px 8px;
+    min-width: 35px;
+  }
+
+  .glory-pickaxe img {
+    width: 100px;
+    height: 100px;
+  }
+}
+
 /* Landscape orientation adjustments */
 @media (max-height: 600px) and (orientation: landscape) {
   .game-box {

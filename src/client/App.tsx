@@ -194,6 +194,12 @@ export const App = () => {
   const [manualSavePending, setManualSavePending] = useState(false);
   const [lastSaveTimestamp, setLastSaveTimestamp] = useState<number | null>(null);
 
+  // Glory Pickaxe state
+  const [gloryPickaxeVisible, setGloryPickaxeVisible] = useState(false);
+  const [gloryPickaxePosition, setGloryPickaxePosition] = useState({ x: 50, y: 50 });
+  const [gloryBuffActive, setGloryBuffActive] = useState(false);
+  const [gloryBuffTimeRemaining, setGloryBuffTimeRemaining] = useState(0);
+
   const musicEnabledRef = useRef(true);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -526,11 +532,21 @@ export const App = () => {
     }, 11000);
   }, []);
 
+  // Glory Pickaxe click handler
+  const handleGloryPickaxeClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering ore click
+    playSelectSound();
+    setGloryPickaxeVisible(false);
+    setGloryBuffActive(true);
+    setGloryBuffTimeRemaining(30);
+  }, [playSelectSound]);
+
   // Handle ore click
   const handleOreClick = useCallback(() => {
     const ore = ORES[currentOreId];
     if (!ore || !currentTool) return; // Safety check
-    const bonusMoney = Math.floor(ore.value * currentTool.bonusMultiplier);
+    const gloryMultiplier = gloryBuffActive ? 2 : 1; // 2x when buff is active
+    const bonusMoney = Math.floor(ore.value * currentTool.bonusMultiplier * gloryMultiplier);
 
     playMiningSoundCallback();
     setIsSmashing(true);
@@ -591,7 +607,7 @@ export const App = () => {
 
     setCurrentOreId(nextOreId);
     setCurrentOreVariant(nextOreVariant);
-  }, [currentOreId, currentTool, currentBiome, createFallingOres, playMiningSoundCallback]);
+  }, [currentOreId, currentTool, currentBiome, createFallingOres, playMiningSoundCallback, gloryBuffActive]);
 
   // Handle smash animation complete
   const handleSmashComplete = useCallback(() => {
@@ -927,6 +943,61 @@ export const App = () => {
     init();
   }, []);
 
+  // Glory Pickaxe spawn logic - spawns every ~3 minutes
+  useEffect(() => {
+    if (!ready || showCover || gloryBuffActive) return;
+
+    const spawnGloryPickaxe = () => {
+      // Random position (avoid edges)
+      const x = 15 + Math.random() * 70; // 15% to 85%
+      const y = 20 + Math.random() * 60; // 20% to 80%
+      setGloryPickaxePosition({ x, y });
+      setGloryPickaxeVisible(true);
+
+      // Hide after 8 seconds if not clicked
+      setTimeout(() => {
+        setGloryPickaxeVisible(false);
+      }, 8000);
+    };
+
+    // Random interval between 2.5 to 3.5 minutes
+    const randomInterval = () => {
+      const minTime = 150000; // 2.5 minutes
+      const maxTime = 210000; // 3.5 minutes
+      return minTime + Math.random() * (maxTime - minTime);
+    };
+
+    const scheduleNext = () => {
+      const interval = randomInterval();
+      return setTimeout(() => {
+        spawnGloryPickaxe();
+        scheduleNext();
+      }, interval);
+    };
+
+    const timeoutId = scheduleNext();
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [ready, showCover, gloryBuffActive]);
+
+  // Glory Buff timer countdown
+  useEffect(() => {
+    if (!gloryBuffActive || gloryBuffTimeRemaining <= 0) {
+      if (gloryBuffActive && gloryBuffTimeRemaining <= 0) {
+        setGloryBuffActive(false);
+      }
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setGloryBuffTimeRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [gloryBuffActive, gloryBuffTimeRemaining]);
+
   if (!ready) {
     return (
       <div className="app loading">
@@ -938,7 +1009,29 @@ export const App = () => {
 
   return (
     <div className="app">
-      <div className="game-box" style={{ backgroundColor: currentBiome.backgroundColor }}>
+      <div className={`game-box ${gloryBuffActive ? 'glory-buff-active' : ''}`} style={{ backgroundColor: currentBiome.backgroundColor }}>
+        {/* Glory Pickaxe */}
+        {gloryPickaxeVisible && (
+          <div
+            className="glory-pickaxe"
+            style={{
+              left: `${gloryPickaxePosition.x}%`,
+              top: `${gloryPickaxePosition.y}%`,
+            }}
+            onClick={handleGloryPickaxeClick}
+          >
+            <img src="/golden.png" alt="Glory Pickaxe" />
+          </div>
+        )}
+
+        {/* Glory Buff Indicator */}
+        {gloryBuffActive && (
+          <div className="glory-buff-indicator">
+            <span>2X</span>
+            <div className="glory-buff-timer">{gloryBuffTimeRemaining}s</div>
+          </div>
+        )}
+
         {showCover && (
           <div className="cover-screen">
             {/* Background decorative elements */}
