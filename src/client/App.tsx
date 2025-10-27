@@ -262,6 +262,7 @@ export const App = () => {
   const fallingOreKeyRef = useRef<number>(0);
   const latestValuesRef = useRef({ money: 0, depth: 0 });
   const lastSnapshotRef = useRef({ money: 0, depth: 0, time: Date.now() });
+  const gameStateRef = useRef(gameState);
 
   const currentTool = useMemo(
     () => TOOLS.find((t) => t.id === gameState.currentTool) ?? TOOLS[0],
@@ -272,7 +273,8 @@ export const App = () => {
 
   useEffect(() => {
     latestValuesRef.current = { money: gameState.money, depth: gameState.depth };
-  }, [gameState.money, gameState.depth]);
+    gameStateRef.current = gameState;
+  }, [gameState]);
 
   useEffect(() => {
     lastSnapshotRef.current = {
@@ -349,7 +351,9 @@ export const App = () => {
         return;
       }
 
-      if (!gameState.playerName) {
+      const currentGameState = gameStateRef.current;
+
+      if (!currentGameState.playerName) {
         return;
       }
 
@@ -357,7 +361,7 @@ export const App = () => {
         setManualSavePending(true);
       }
 
-      const response = await apiClient.save(gameState);
+      const response = await apiClient.save(currentGameState);
 
       if (response.success) {
         setLastSaveTimestamp(Date.now());
@@ -371,7 +375,7 @@ export const App = () => {
         }
       }
     },
-    [gameState, ready]
+    [ready]
   );
 
   const handleManualSave = useCallback(() => {
@@ -811,12 +815,6 @@ export const App = () => {
     };
   }, [gameState.autoDiggers, createFallingOres]);
 
-  // Store the latest sendSaveGame function in a ref
-  const sendSaveGameRef = useRef(sendSaveGame);
-  useEffect(() => {
-    sendSaveGameRef.current = sendSaveGame;
-  }, [sendSaveGame]);
-
   // Auto-save every 30 seconds
   useEffect(() => {
     if (!ready || !gameState.playerName) {
@@ -824,13 +822,13 @@ export const App = () => {
     }
 
     const intervalId = setInterval(() => {
-      sendSaveGameRef.current(false);
+      sendSaveGame(false);
     }, 30000); // 30 seconds
 
     return () => {
       clearInterval(intervalId);
     };
-  }, [ready, gameState.playerName]);
+  }, [ready, gameState.playerName, sendSaveGame]);
 
   // Initial setup
   useEffect(() => {
