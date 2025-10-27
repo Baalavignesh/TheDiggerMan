@@ -14,7 +14,7 @@ export const createPost = async () => {
       backgroundUri: 'splash.png',
       buttonLabel: 'Play',
       description: 'Descend into the depths and uncover legendary riches.',
-      entryUri: 'index.html',
+      entry: 'default',
       heading: 'The DiggerMan',
     },
     subredditName: subredditName,

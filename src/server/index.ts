@@ -113,9 +113,17 @@ router.get('/api/init', async (_req, res): Promise<void> => {
     // Get player's standing if they have a player name
     let playerStanding = null;
     if (gameState && gameState.playerName) {
-      const playerMoneyRank = await redis.zRank(moneyKey, gameState.playerName, { reverse: true });
-      if (playerMoneyRank !== undefined) {
-        playerStanding = playerMoneyRank + 1;
+      const [playerMoneyRankAsc, totalMoneyEntries] = await Promise.all([
+        redis.zRank(moneyKey, gameState.playerName),
+        redis.zCard(moneyKey),
+      ]);
+
+      if (
+        playerMoneyRankAsc !== undefined &&
+        typeof totalMoneyEntries === 'number' &&
+        totalMoneyEntries > 0
+      ) {
+        playerStanding = totalMoneyEntries - playerMoneyRankAsc;
       }
 
       // Auto-register username in name index if not already registered
@@ -224,8 +232,15 @@ router.post('/api/save', async (req, res): Promise<void> => {
     }));
 
     // Get player's standing
-    const playerMoneyRank = await redis.zRank(moneyKey, playerName, { reverse: true });
-    const playerStanding = playerMoneyRank !== undefined ? playerMoneyRank + 1 : null;
+    const [playerMoneyRankAsc, totalMoneyEntries] = await Promise.all([
+      redis.zRank(moneyKey, playerName),
+      redis.zCard(moneyKey),
+    ]);
+
+    const playerStanding =
+      playerMoneyRankAsc !== undefined && typeof totalMoneyEntries === 'number' && totalMoneyEntries > 0
+        ? totalMoneyEntries - playerMoneyRankAsc
+        : null;
 
     res.json({
       success: true,

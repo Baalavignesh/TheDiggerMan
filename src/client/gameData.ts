@@ -119,7 +119,11 @@ export function getBiome(depth: number): Biome {
       return biome;
     }
   }
-  return BIOMES[BIOMES.length - 1];
+  const fallbackBiome = BIOMES[BIOMES.length - 1] ?? BIOMES[0];
+  if (!fallbackBiome) {
+    throw new Error('No biomes configured');
+  }
+  return fallbackBiome;
 }
 
 // Auto-digger cost scaling - Much steeper scaling (1.25x per purchase instead of 1.15x)

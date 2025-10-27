@@ -22,6 +22,106 @@ const MINING_SOUND_THROTTLE = 50;
 const MAX_ACTIVE_SPARKS = 30;
 const MAX_FALLING_ORES = 40;
 
+const SCREEN_MODE_VALUES = ['mobile', 'desktop', 'fullscreen'] as const;
+type ScreenMode = (typeof SCREEN_MODE_VALUES)[number];
+
+const normalizeScreenMode = (value: unknown): ScreenMode | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return (SCREEN_MODE_VALUES as readonly string[]).includes(normalized)
+    ? (normalized as ScreenMode)
+    : null;
+};
+
+const fallbackScreenModeFromViewport = (): ScreenMode => {
+  if (typeof window === 'undefined') {
+    return 'desktop';
+  }
+
+  const doc = typeof document !== 'undefined' ? document : null;
+  const width = window.innerWidth || doc?.documentElement?.clientWidth || 0;
+  const height = window.innerHeight || doc?.documentElement?.clientHeight || 0;
+
+  if (width === 0 && height === 0) {
+    return 'desktop';
+  }
+
+  if (width <= 640) {
+    return 'mobile';
+  }
+
+  if (width >= 1200 || height >= 900) {
+    return 'fullscreen';
+  }
+
+  return 'desktop';
+};
+
+const detectScreenMode = (): ScreenMode => {
+  if (typeof window === 'undefined') {
+    return 'desktop';
+  }
+
+  const candidates: unknown[] = [];
+
+  if (typeof document !== 'undefined') {
+    candidates.push(document.body?.dataset?.screenMode);
+    candidates.push(document.documentElement?.dataset?.screenMode);
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  candidates.push(searchParams.get('screenMode'));
+  candidates.push(searchParams.get('screen'));
+
+  const devvitWindow = window as typeof window & {
+    __devvitScreenMode__?: unknown;
+    __DEVVIT_SCREEN_MODE__?: unknown;
+    __devvit_screen_mode__?: unknown;
+  };
+
+  candidates.push(devvitWindow.__devvitScreenMode__);
+  candidates.push(devvitWindow.__DEVVIT_SCREEN_MODE__);
+  candidates.push(devvitWindow.__devvit_screen_mode__);
+
+  try {
+    candidates.push(window.localStorage?.getItem('devvit:screenMode'));
+  } catch (err) {
+    // Ignore storage access issues (Safari private mode, etc.)
+  }
+
+  for (const candidate of candidates) {
+    const mode = normalizeScreenMode(candidate);
+    if (mode) {
+      return mode;
+    }
+  }
+
+  return fallbackScreenModeFromViewport();
+};
+
+const extractScreenModeFromMessage = (event: MessageEvent): ScreenMode | null => {
+  const { data } = event;
+
+  if (!data) {
+    return null;
+  }
+
+  if (typeof data === 'string') {
+    return normalizeScreenMode(data);
+  }
+
+  if (typeof data === 'object') {
+    const possibleMode =
+      (data as { screenMode?: unknown; screen?: unknown }).screenMode ??
+      (data as { screenMode?: unknown; screen?: unknown }).screen;
+    return normalizeScreenMode(possibleMode);
+  }
+
+  return null;
+};
+
 const isMobileDevice = () =>
   typeof window !== 'undefined' && window.matchMedia('(any-pointer: coarse)').matches;
 
@@ -67,6 +167,10 @@ const playMiningSound = () => {
 
   try {
     const sound = miningSoundPool[currentMiningIndex];
+    if (!sound) {
+      return;
+    }
+
     if (sound.paused || sound.ended) {
       sound.currentTime = 0;
       sound.play().catch(() => {}); // Silently catch errors
@@ -82,6 +186,10 @@ const playSelectSoundFast = () => {
   }
   try {
     const sound = selectSoundPool[currentSelectIndex];
+    if (!sound) {
+      return;
+    }
+
     if (sound.paused || sound.ended) {
       sound.currentTime = 0;
       sound.play().catch(() => {});
@@ -150,10 +258,21 @@ function getOreImagePath(oreName: string, variant: number): string {
 
 // Randomly select an ore from the current biome
 function getRandomOre(biomeOres: string[]): string {
-  const availableOres = biomeOres.map(oreId => ORES[oreId]);
+  const availableOres = biomeOres
+    .map((oreId) => ORES[oreId])
+    .filter((ore): ore is (typeof ORES)[string] => ore !== undefined);
+
+  if (availableOres.length === 0) {
+    return biomeOres[0] ?? 'dirt';
+  }
 
   // Weighted random selection based on spawn chance
   const totalWeight = availableOres.reduce((sum, ore) => sum + ore.spawnChance, 0);
+  if (totalWeight <= 0) {
+    const fallbackOre = availableOres[0];
+    return fallbackOre ? fallbackOre.id : biomeOres[0] ?? 'dirt';
+  }
+
   let random = Math.random() * totalWeight;
 
   for (const ore of availableOres) {
@@ -163,7 +282,8 @@ function getRandomOre(biomeOres: string[]): string {
     }
   }
 
-  return biomeOres[0]; // Fallback
+  const fallbackOre = availableOres[0];
+  return fallbackOre ? fallbackOre.id : biomeOres[0] ?? 'dirt';
 }
 
 export const App = () => {
@@ -189,10 +309,15 @@ export const App = () => {
   const [showAutoDiggersViewer, setShowAutoDiggersViewer] = useState(false);
   const [showCover, setShowCover] = useState(true);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [playerStanding, setPlayerStanding] = useState<number | null>(null);
+  const [, setPlayerStanding] = useState<number | null>(null);
   const [approxRates, setApproxRates] = useState({ moneyPerSecond: 0, depthPerSecond: 0 });
   const [manualSavePending, setManualSavePending] = useState(false);
   const [lastSaveTimestamp, setLastSaveTimestamp] = useState<number | null>(null);
+  const [screenMode, setScreenMode] = useState<ScreenMode>(() => detectScreenMode());
+
+  const applyScreenMode = useCallback((nextMode: ScreenMode) => {
+    setScreenMode(prev => (prev === nextMode ? prev : nextMode));
+  }, []);
 
   // Glory Pickaxe state
   const [gloryPickaxeVisible, setGloryPickaxeVisible] = useState(false);
@@ -207,6 +332,55 @@ export const App = () => {
   useEffect(() => {
     musicEnabledRef.current = musicEnabled;
   }, [musicEnabled]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.body) {
+      return;
+    }
+
+    document.body.dataset.screenMode = screenMode;
+  }, [screenMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleResize = () => {
+      applyScreenMode(detectScreenMode());
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      const modeFromMessage = extractScreenModeFromMessage(event);
+      if (modeFromMessage) {
+        applyScreenMode(modeFromMessage);
+      }
+    };
+
+    handleResize();
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('message', handleMessage);
+
+    let observer: MutationObserver | null = null;
+
+    if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined' && document.body) {
+      observer = new MutationObserver(() => {
+        applyScreenMode(detectScreenMode());
+      });
+
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['data-screen-mode', 'class'],
+      });
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('message', handleMessage);
+      observer?.disconnect();
+    };
+  }, [applyScreenMode]);
 
   // Reddit username is automatically set from server
 
@@ -256,7 +430,7 @@ export const App = () => {
   const [fallingOres, setFallingOres] = useState<Array<{ id: string; variant: number; x: number; delay: number; duration: number; key: number }>>([]);
 
   // Auto-digger states
-  const [autoDiggerStates, setAutoDiggerStates] = useState<{
+  const [, setAutoDiggerStates] = useState<{
     [diggerId: string]: {
       currentOre: { id: string; variant: number };
       upcomingOres: Array<{ id: string; variant: number }>;
@@ -265,7 +439,6 @@ export const App = () => {
   }>({});
 
   const lastTickRef = useRef<number>(Date.now());
-  const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sparkKeyRef = useRef<number>(0);
   const fallingOreKeyRef = useRef<number>(0);
   const latestValuesRef = useRef({ money: 0, depth: 0 });
@@ -321,7 +494,7 @@ export const App = () => {
   ) => {
     const items: React.ReactNode[] = [];
 
-    entries.forEach((entry, index) => {
+    entries.forEach((entry) => {
       const isSelf = gameState.playerName === entry.playerName;
       items.push(
         <li
@@ -408,7 +581,7 @@ export const App = () => {
     const oreTypes = ['stone', 'gold', 'emerald', 'ruby', 'diamond', 'deep_stone'];
     return Array.from({ length: 25 }, (_, i) => ({
       id: i,
-      ore: oreTypes[Math.floor(Math.random() * oreTypes.length)],
+      ore: oreTypes[Math.floor(Math.random() * oreTypes.length)] ?? 'stone',
       variant: Math.floor(Math.random() * 3) + 4,
       x: Math.random() * 100,
       y: Math.random() * 100,
@@ -420,7 +593,7 @@ export const App = () => {
   const totalDepthProduction = useMemo(() => {
     if (!gameState.autoDiggers) return 0;
     return AUTO_DIGGERS.reduce((total, digger) => {
-      const count = gameState.autoDiggers[digger.id] || 0;
+      const count = gameState.autoDiggers[digger.id] ?? 0;
       return total + digger.depthPerSecond * count;
     }, 0);
   }, [gameState.autoDiggers]);
@@ -494,8 +667,11 @@ export const App = () => {
   // Process achievement toast queue
   useEffect(() => {
     if (!currentToastAchievement && achievementQueue.length > 0) {
-      setCurrentToastAchievement(achievementQueue[0]);
-      setAchievementQueue(prev => prev.slice(1));
+      const [nextAchievement, ...remainingAchievements] = achievementQueue;
+      if (nextAchievement) {
+        setCurrentToastAchievement(nextAchievement);
+        setAchievementQueue(remainingAchievements);
+      }
     }
   }, [currentToastAchievement, achievementQueue]);
 
@@ -639,7 +815,7 @@ export const App = () => {
   // Buy auto-digger
   const buyAutoDigger = useCallback(
     (digger: AutoDigger) => {
-      const currentCount = gameState.autoDiggers[digger.id] || 0;
+      const currentCount = gameState.autoDiggers[digger.id] ?? 0;
       const cost = getAutoDiggerCost(digger, currentCount);
 
       if (gameState.money >= cost) {
@@ -660,7 +836,7 @@ export const App = () => {
   // Buy multiple auto-diggers at once
   const buyMultipleAutoDiggers = useCallback(
     (digger: AutoDigger, count: number) => {
-      const currentCount = gameState.autoDiggers[digger.id] || 0;
+      const currentCount = gameState.autoDiggers[digger.id] ?? 0;
       let totalCost = 0;
 
       // Calculate total cost for buying multiple
@@ -708,7 +884,7 @@ export const App = () => {
     const biome = getBiome(gameState.depth);
 
     const ownedDiggers = Object.keys(gameState.autoDiggers).filter(
-      (diggerId) => gameState.autoDiggers[diggerId] > 0
+      (diggerId) => (gameState.autoDiggers[diggerId] ?? 0) > 0
     );
 
     setAutoDiggerStates((prev) => {
@@ -758,8 +934,14 @@ export const App = () => {
         const newStates = { ...prev };
 
         Object.keys(newStates).forEach((diggerId) => {
+          const existingState = newStates[diggerId];
+          if (!existingState) {
+            delete newStates[diggerId];
+            return;
+          }
+
           newStates[diggerId] = {
-            ...newStates[diggerId],
+            ...existingState,
             currentOre: {
               id: getRandomOre(newBiome.ores),
               variant: Math.floor(Math.random() * 3) + 1,
@@ -782,12 +964,12 @@ export const App = () => {
   useEffect(() => {
     const intervals: { [diggerId: string]: NodeJS.Timeout } = {};
     const ownedDiggers = Object.keys(gameState.autoDiggers).filter(
-      (diggerId) => gameState.autoDiggers[diggerId] > 0
+      (diggerId) => (gameState.autoDiggers[diggerId] ?? 0) > 0
     );
 
     ownedDiggers.forEach((diggerId) => {
       const digger = AUTO_DIGGERS.find((d) => d.id === diggerId);
-      const count = gameState.autoDiggers[diggerId] || 0;
+      const count = gameState.autoDiggers[diggerId] ?? 0;
 
       if (!digger || count === 0) return;
 
@@ -796,24 +978,28 @@ export const App = () => {
 
       const interval = setInterval(() => {
         setAutoDiggerStates((prev) => {
-          if (!prev[diggerId] || prev[diggerId].isSmashing) {
+          const currentState = prev[diggerId];
+          if (!currentState || currentState.isSmashing) {
             return prev;
           }
 
           return {
             ...prev,
-            [diggerId]: { ...prev[diggerId], isSmashing: true },
+            [diggerId]: { ...currentState, isSmashing: true },
           };
         });
 
         setTimeout(() => {
           setAutoDiggerStates((prev) => {
-            if (!prev[diggerId]) return prev;
+            const currentState = prev[diggerId];
+            if (!currentState) {
+              return prev;
+            }
 
-            const ore = ORES[prev[diggerId].currentOre.id];
-            const currentOreId = prev[diggerId].currentOre.id;
+            const oreDetails = ORES[currentState.currentOre.id];
+            const currentOreId = currentState.currentOre.id;
 
-            if (!ore) return prev; // Safety check: ore must exist
+            if (!oreDetails) return prev; // Safety check
 
             createFallingOres(currentOreId);
 
@@ -823,7 +1009,7 @@ export const App = () => {
 
               return {
                 ...prevState,
-                money: prevState.money + ore.value,
+                money: prevState.money + oreDetails.value,
                 oreInventory: {
                   ...prevState.oreInventory,
                   [currentOreId]: (prevState.oreInventory[currentOreId] || 0) + 1,
@@ -832,7 +1018,7 @@ export const App = () => {
               };
             });
 
-            const [nextOre, ...remaining] = prev[diggerId].upcomingOres;
+            const [nextOre, ...remaining] = currentState.upcomingOres;
             const biome = getBiome(gameState.depth);
             const newOre = {
               id: getRandomOre(biome.ores),
@@ -842,7 +1028,7 @@ export const App = () => {
             return {
               ...prev,
               [diggerId]: {
-                currentOre: nextOre,
+                currentOre: nextOre ?? newOre,
                 upcomingOres: [...remaining, newOre],
                 isSmashing: false,
               },
@@ -1116,16 +1302,18 @@ export const App = () => {
           >
             <i className="fas fa-save"></i>
           </button>
-          <button
-            className="pixel-btn icon-btn auto-diggers-viewer-icon"
-            title="My Auto-Diggers"
-            onClick={() => {
-              playSelectSound();
-              setShowAutoDiggersViewer(true);
-            }}
-          >
-            <i className="fas fa-robot"></i>
-          </button>
+          {screenMode !== 'mobile' && (
+            <button
+              className="pixel-btn icon-btn auto-diggers-viewer-icon"
+              title="My Auto-Diggers"
+              onClick={() => {
+                playSelectSound();
+                setShowAutoDiggersViewer(true);
+              }}
+            >
+              <i className="fas fa-robot"></i>
+            </button>
+          )}
           <button
             className="pixel-btn icon-btn leaderboard-icon"
             title="Leaderboard"
@@ -1188,10 +1376,10 @@ export const App = () => {
           </div>
 
           {(() => {
-            const nextDigger = AUTO_DIGGERS.find((digger, index) => {
-              const ownedDiggers = Object.keys(gameState.autoDiggers).filter(id => gameState.autoDiggers[id] > 0);
-              return !ownedDiggers.includes(digger.id);
-            });
+            const ownedDiggers = Object.keys(gameState.autoDiggers).filter(
+              (id) => (gameState.autoDiggers[id] ?? 0) > 0
+            );
+            const nextDigger = AUTO_DIGGERS.find((digger) => !ownedDiggers.includes(digger.id));
 
             if (nextDigger) {
               return (
@@ -1392,7 +1580,7 @@ export const App = () => {
                     src={getOreImagePath(currentOreId, currentOreVariant)}
                     alt={ORES[currentOreId]?.name || 'Ore'}
                     className="current-ore"
-                    onError={(e) => {
+                    onError={() => {
                       console.error(`Failed to load ore: ${getOreImagePath(currentOreId, currentOreVariant)}`);
                     }}
                   />
@@ -1499,10 +1687,15 @@ export const App = () => {
             <div className="shop-section">
               <div className="shop-items">
                 {AUTO_DIGGERS.map((digger, index) => {
-                  const count = gameState.autoDiggers[digger.id] || 0;
+                  const count = gameState.autoDiggers[digger.id] ?? 0;
                   const cost = getAutoDiggerCost(digger, count);
                   const canAfford = gameState.money >= cost;
-                  const shouldShow = index === 0 || index <= Object.keys(gameState.autoDiggers).filter(id => gameState.autoDiggers[id] > 0).length;
+                  const shouldShow =
+                    index === 0 ||
+                    index <=
+                      Object.keys(gameState.autoDiggers).filter(
+                        (id) => (gameState.autoDiggers[id] ?? 0) > 0
+                      ).length;
                   const diggerImagePath = `/auto-diggers/${digger.name}.png`;
 
                   return (

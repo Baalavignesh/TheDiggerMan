@@ -37,9 +37,15 @@ const Character: React.FC<CharacterProps> = ({ isSmashing, onSmashComplete }) =>
 
       setFrameIndex(index);
 
+      const frame = smashFrames[index];
+      if (!frame) {
+        onSmashComplete();
+        return;
+      }
+
       const timeoutId = setTimeout(() => {
         animateFrame(index + 1);
-      }, smashFrames[index].duration);
+      }, frame.duration);
 
       timeoutIds.push(timeoutId);
     };

@@ -3230,11 +3230,9 @@ i, .fa, .fas, .far, .fab {
   box-shadow: 0 4px 12px rgba(156, 39, 176, 0.4);
 }
 
-/* Hide auto-diggers button on mobile */
-@media (max-width: 768px) {
-  .auto-diggers-viewer-icon {
-    display: none;
-  }
+/* Hide auto-diggers button when Devvit reports mobile screen mode */
+body[data-screen-mode='mobile'] .auto-diggers-viewer-icon {
+  display: none;
 }
 
 /* Responsive adjustments */

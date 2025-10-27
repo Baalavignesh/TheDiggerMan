@@ -177,8 +177,16 @@ export function checkAchievement(achievement: Achievement, gameData: {
     case 'specificOre':
       if (typeof requirement.value === 'string') {
         const [oreId, countStr] = requirement.value.split(':');
-        const requiredCount = parseInt(countStr);
-        return (gameData.oreInventory[oreId] || 0) >= requiredCount;
+        if (!oreId || !countStr) {
+          return false;
+        }
+
+        const requiredCount = Number.parseInt(countStr, 10);
+        if (Number.isNaN(requiredCount)) {
+          return false;
+        }
+
+        return (gameData.oreInventory[oreId] ?? 0) >= requiredCount;
       }
       return false;
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ACHIEVEMENTS, checkAchievement, Achievement } from './achievements';
+import { ACHIEVEMENTS } from './achievements';
 import Modal from './Modal';
 
 interface AchievementsModalProps {
@@ -21,8 +21,8 @@ interface AchievementsModalProps {
 const AchievementsModal: React.FC<AchievementsModalProps> = ({
   isOpen,
   onClose,
-  gameState,
-  unlockedAchievements
+  gameState: _gameState,
+  unlockedAchievements,
 }) => {
   // Group achievements by category
   const categories = {
