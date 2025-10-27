@@ -7,6 +7,7 @@ import Character from './Character';
 import Modal from './Modal';
 import AchievementsModal from './AchievementsModal';
 import AchievementToast from './AchievementToast';
+import AutoDiggersViewerModal from './AutoDiggersViewerModal';
 import { ACHIEVEMENTS, checkAchievement, Achievement } from './achievements';
 
 // Sound pooling for high-performance rapid taps
@@ -185,6 +186,7 @@ export const App = () => {
   const [showAchievements, setShowAchievements] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showAutoDiggersViewer, setShowAutoDiggersViewer] = useState(false);
   const [showCover, setShowCover] = useState(true);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [playerStanding, setPlayerStanding] = useState<number | null>(null);
@@ -639,6 +641,32 @@ export const App = () => {
     [gameState.money, gameState.autoDiggers, playSelectSound]
   );
 
+  // Buy multiple auto-diggers at once
+  const buyMultipleAutoDiggers = useCallback(
+    (digger: AutoDigger, count: number) => {
+      const currentCount = gameState.autoDiggers[digger.id] || 0;
+      let totalCost = 0;
+
+      // Calculate total cost for buying multiple
+      for (let i = 0; i < count; i++) {
+        totalCost += getAutoDiggerCost(digger, currentCount + i);
+      }
+
+      if (gameState.money >= totalCost) {
+        playSelectSound();
+        setGameState((prev) => ({
+          ...prev,
+          money: prev.money - totalCost,
+          autoDiggers: {
+            ...prev.autoDiggers,
+            [digger.id]: currentCount + count,
+          },
+        }));
+      }
+    },
+    [gameState.money, gameState.autoDiggers, playSelectSound]
+  );
+
   // Auto-production tick (60fps)
   useEffect(() => {
     if (totalDepthProduction <= 0) return;
@@ -994,6 +1022,16 @@ export const App = () => {
             disabled={manualSavePending}
           >
             <i className="fas fa-save"></i>
+          </button>
+          <button
+            className="pixel-btn icon-btn auto-diggers-viewer-icon"
+            title="My Auto-Diggers"
+            onClick={() => {
+              playSelectSound();
+              setShowAutoDiggersViewer(true);
+            }}
+          >
+            <i className="fas fa-robot"></i>
           </button>
           <button
             className="pixel-btn icon-btn leaderboard-icon"
@@ -1431,6 +1469,15 @@ export const App = () => {
           discoveredBiomes: gameState.discoveredBiomes,
         }}
         unlockedAchievements={gameState.unlockedAchievements}
+      />
+
+      {/* Auto-Diggers Viewer Modal */}
+      <AutoDiggersViewerModal
+        isOpen={showAutoDiggersViewer}
+        onClose={() => { playSelectSound(); setShowAutoDiggersViewer(false); }}
+        autoDiggers={gameState.autoDiggers}
+        currentMoney={gameState.money}
+        onBuyAutoDigger={buyMultipleAutoDiggers}
       />
 
       {/* Achievement Toast */}
