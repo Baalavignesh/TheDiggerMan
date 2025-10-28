@@ -213,6 +213,8 @@ export const App = () => {
   const [approxRates, setApproxRates] = useState({ moneyPerSecond: 0, depthPerSecond: 0 });
   const [manualSavePending, setManualSavePending] = useState(false);
   const [lastSaveTimestamp, setLastSaveTimestamp] = useState<number | null>(null);
+  const [saveToastMessage, setSaveToastMessage] = useState('');
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
 
   // Glory Pickaxe state
   const [gloryPickaxeVisible, setGloryPickaxeVisible] = useState(false);
@@ -231,7 +233,7 @@ export const App = () => {
   // Reddit username is automatically set from server
 
   const [shopTab, setShopTab] = useState<'tools' | 'diggers'>('tools');
-  const [infoTab, setInfoTab] = useState<'ores' | 'biomes'>('ores');
+  const [infoTab, setInfoTab] = useState<'ores' | 'biomes' | 'glory'>('ores');
 
   // Achievement toast state
   const [currentToastAchievement, setCurrentToastAchievement] = useState<Achievement | null>(null);
@@ -290,6 +292,7 @@ export const App = () => {
   const latestValuesRef = useRef({ money: 0, depth: 0 });
   const lastSnapshotRef = useRef({ money: 0, depth: 0, time: Date.now() });
   const gameStateRef = useRef(gameState);
+  const saveToastTimeoutRef = useRef<number | null>(null);
 
   const currentTool = useMemo(
     () => TOOLS.find((t) => t.id === gameState.currentTool) ?? TOOLS[0],
@@ -302,6 +305,14 @@ export const App = () => {
     latestValuesRef.current = { money: gameState.money, depth: gameState.depth };
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  useEffect(() => {
+    return () => {
+      if (saveToastTimeoutRef.current !== null) {
+        window.clearTimeout(saveToastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     lastSnapshotRef.current = {
@@ -336,20 +347,27 @@ export const App = () => {
     entries: LeaderboardEntry[],
     icon: string,
     heading: string,
-    formatScore: (score: number) => string
+    formatScore: (score: number) => string,
+    getScore: (entry: LeaderboardEntry) => number
   ) => {
+    // Sort entries by score (descending) and assign correct ranks
+    const sortedEntries = [...entries].sort((a, b) => getScore(b) - getScore(a));
+
     const items: React.ReactNode[] = [];
 
-    entries.forEach((entry) => {
+    sortedEntries.forEach((entry, index) => {
       const isSelf = gameState.playerName === entry.playerName;
+      const score = getScore(entry);
+      const rank = index + 1; // Correct rank based on sorted order
+
       items.push(
         <li
           key={`${heading}-${entry.playerName}`}
           className={`leaderboard-row${isSelf ? ' self' : ''}`}
         >
-          <span className="leaderboard-rank">#{entry.rank}</span>
+          <span className="leaderboard-rank">#{rank}</span>
           <span className="leaderboard-name">{isSelf ? `${entry.playerName} (You)` : entry.playerName}</span>
-          <span className="leaderboard-score">{formatScore(entry.depth || entry.money)}</span>
+          <span className="leaderboard-score">{formatScore(score)}</span>
         </li>
       );
     });
@@ -388,17 +406,42 @@ export const App = () => {
         setManualSavePending(true);
       }
 
-      const response = await apiClient.save(currentGameState);
+      try {
+        const response = await apiClient.save(currentGameState);
 
-      if (response.success) {
-        setLastSaveTimestamp(Date.now());
-        setManualSavePending(false);
+        if (response.success) {
+          setLastSaveTimestamp(Date.now());
+          if (manual) {
+            setManualSavePending(false);
+          }
 
-        if (response.leaderboard) {
-          setLeaderboard(response.leaderboard);
+          if (response.leaderboard) {
+            setLeaderboard(response.leaderboard);
+          }
+          if (response.playerStanding !== undefined) {
+            setPlayerStanding(response.playerStanding);
+          }
+
+          const saveTime = new Date();
+          const formattedTime = saveTime.toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+          setSaveToastMessage(`Game saved • ${formattedTime}`);
+          setSaveToastVisible(true);
+          if (saveToastTimeoutRef.current !== null) {
+            window.clearTimeout(saveToastTimeoutRef.current);
+          }
+          saveToastTimeoutRef.current = window.setTimeout(() => {
+            setSaveToastVisible(false);
+          }, 2000);
+        } else if (manual) {
+          setManualSavePending(false);
         }
-        if (response.playerStanding !== undefined) {
-          setPlayerStanding(response.playerStanding);
+      } catch (error) {
+        console.error('Failed to save game:', error);
+        if (manual) {
+          setManualSavePending(false);
         }
       }
     },
@@ -1195,7 +1238,7 @@ export const App = () => {
           })()}
 
           <div className="depth-main">
-            <div className="depth-label">MONEY EARNED</div>
+            <div className="depth-label">MONEY OWNED</div>
             <div className="depth-value">
               <span className="depth-number">${formatMoney(gameState.money)}</span>
             </div>
@@ -1299,14 +1342,16 @@ export const App = () => {
           {renderLeaderboardColumn(
             leaderboard.filter(entry => entry.money > 0),
             'fa-coins',
-            'Most Money Earned',
-            (score) => `$${formatMoney(score)}`
+            'Most Money Owned',
+            (score) => `$${formatMoney(score)}`,
+            (entry) => entry.money
           )}
           {renderLeaderboardColumn(
             leaderboard.filter(entry => entry.depth > 0),
             'fa-arrow-down',
             'Deepest Diggers',
-            (score) => `${formatNumber(score)} ft`
+            (score) => `${formatNumber(score)} ft`,
+            (entry) => entry.depth
           )}
         </div>
         <p className="leaderboard-note">Stats save every 5 seconds or when you press Save Now.</p>
@@ -1334,6 +1379,13 @@ export const App = () => {
           >
             <i className="fas fa-mountain"></i>
             <span>BIOMES</span>
+          </button>
+          <button
+            className={`shop-tab ${infoTab === 'glory' ? 'active' : ''}`}
+            onClick={() => { playSelectSound(); setInfoTab('glory'); }}
+          >
+            <i className="fas fa-bolt"></i>
+            <span>GLORY PICKAXE</span>
           </button>
         </div>
 
@@ -1385,6 +1437,27 @@ export const App = () => {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {infoTab === 'glory' && (
+            <div className="glory-info">
+              <div className="glory-card">
+                <div className="glory-content">
+                  <h3>What is the Glory Pickaxe?</h3>
+                  <p>
+                    A shimmering pickaxe randomly appears on screen. Tap it before it vanishes to trigger a short <strong>2x mining boost</strong> for manual swings and auto-diggers alike.
+                  </p>
+                  <ul>
+                    <li>Spawns every few minutes in a random location.</li>
+                    <li>Stays visible for roughly eight seconds, so look sharp.</li>
+                    <li>The glowing pickaxe and timer show how long the buff lasts.</li>
+                  </ul>
+                  <p>
+                    Keep digging during the buff window to maximise payouts. You can chain multiple Glory activations with other bonuses for even bigger gains.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1615,6 +1688,12 @@ export const App = () => {
         achievement={currentToastAchievement}
         onClose={() => setCurrentToastAchievement(null)}
       />
+      {saveToastVisible && (
+        <div className="save-toast">
+          <i className="fas fa-save"></i>
+          <span>{saveToastMessage || 'Game saved'}</span>
+        </div>
+      )}
       </div>
     </div>
   );
