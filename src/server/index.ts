@@ -178,8 +178,28 @@ router.post('/api/save', async (req, res): Promise<void> => {
       return;
     }
 
-    // Save game state
+    // Get previous game state to calculate click delta
     const saveKey = `gameState:${postId}:${userId || 'anonymous'}`;
+    const previousStateStr = await redis.get(saveKey);
+    let previousClicks = 0;
+    if (previousStateStr) {
+      try {
+        const previousState = JSON.parse(previousStateStr);
+        previousClicks = previousState.totalClicks || 0;
+      } catch (e) {
+        console.error('Failed to parse previous game state:', e);
+      }
+    }
+
+    // Calculate click delta and update global stats
+    const currentClicks = gameState.totalClicks || 0;
+    const clickDelta = currentClicks - previousClicks;
+    if (clickDelta > 0) {
+      const globalClicksKey = `stats:${postId}:globalClicks`;
+      await redis.incrBy(globalClicksKey, clickDelta);
+    }
+
+    // Save game state
     await redis.set(saveKey, JSON.stringify(gameState));
 
     // Update leaderboards - use per-post keys like old game
@@ -189,10 +209,13 @@ router.post('/api/save', async (req, res): Promise<void> => {
 
     const moneyKey = `leaderboard:${postId}:money`;
     const depthKey = `leaderboard:${postId}:depth`;
+    const clicksKey = `leaderboard:${postId}:clicks`;
+    const totalClicksForPlayer = Math.floor(gameState.totalClicks || 0);
 
     await Promise.all([
       redis.zAdd(moneyKey, { member: playerName, score: money }),
       redis.zAdd(depthKey, { member: playerName, score: depth }),
+      redis.zAdd(clicksKey, { member: playerName, score: totalClicksForPlayer }),
     ]);
 
     // Get updated leaderboard
@@ -321,6 +344,36 @@ router.post('/api/register', async (req, res): Promise<void> => {
   }
 });
 
+// API: Get global stats
+router.get('/api/global-stats', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).json({ error: 'postId is required' });
+      return;
+    }
+
+    const moneyKey = `leaderboard:${postId}:money`;
+    const globalClicksKey = `stats:${postId}:globalClicks`;
+
+    const [totalPlayers, globalClicksStr] = await Promise.all([
+      redis.zCard(moneyKey),
+      redis.get(globalClicksKey),
+    ]);
+
+    const globalClicks = globalClicksStr ? parseInt(globalClicksStr, 10) : 0;
+
+    res.json({
+      totalPlayers: totalPlayers || 0,
+      globalClicks,
+    });
+  } catch (error) {
+    console.error('Failed to fetch global stats:', error);
+    res.status(500).json({ error: 'Failed to fetch global stats' });
+  }
+});
+
 // Internal: On app install
 router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
   try {
@@ -411,6 +464,208 @@ router.post('/internal/update-leaderboard', async (req, res): Promise<void> => {
       status: 'error',
       message: 'Failed to update leaderboard',
     });
+  }
+});
+
+// Internal: Migrate global clicks (backfill from existing game states)
+router.post('/internal/migrate-global-clicks', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).json({
+        status: 'error',
+        message: 'postId is required',
+      });
+      return;
+    }
+
+    const globalClicksKey = `stats:${postId}:globalClicks`;
+
+    // Check if already migrated
+    const existingValue = await redis.get(globalClicksKey);
+    if (existingValue && parseInt(existingValue, 10) > 0) {
+      res.json({
+        status: 'warning',
+        message: 'Global clicks counter already has data. Skipping migration to prevent duplication.',
+        currentValue: parseInt(existingValue, 10),
+      });
+      return;
+    }
+
+    // Get all players from the money leaderboard
+    const moneyKey = `leaderboard:${postId}:money`;
+    const allPlayers = await redis.zRange(moneyKey, 0, -1, { by: 'rank' });
+
+    if (!allPlayers || allPlayers.length === 0) {
+      res.json({
+        status: 'success',
+        message: 'No players found to migrate',
+        totalClicks: 0,
+        playersScanned: 0,
+      });
+      return;
+    }
+
+    let totalClicks = 0;
+    let playersScanned = 0;
+    let playersWithClicks = 0;
+
+    // We can't scan by pattern, so we'll need to try to get game states
+    // Since we don't have userId mappings, we'll use a different approach:
+    // Get all leaderboard players and try to fetch their states
+
+    // Actually, we can't directly map playerName to userId without additional data
+    // So this migration will only work if we have the data provided in the request
+    // OR we iterate through possible userIds (which isn't feasible)
+
+    res.json({
+      status: 'info',
+      message: 'Migration requires manual data input. Cannot scan all game states without userId mapping.',
+      suggestion: 'Use /internal/update-global-clicks endpoint with explicit data',
+    });
+  } catch (error) {
+    console.error(`Error migrating global clicks: ${error}`);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to migrate global clicks',
+    });
+  }
+});
+
+// Internal: Update global clicks manually (for migration)
+router.post('/internal/update-global-clicks', async (req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+    const { totalClicks } = req.body;
+
+    if (!postId) {
+      res.status(400).json({
+        status: 'error',
+        message: 'postId is required',
+      });
+      return;
+    }
+
+    if (typeof totalClicks !== 'number' || totalClicks < 0) {
+      res.status(400).json({
+        status: 'error',
+        message: 'totalClicks must be a non-negative number',
+      });
+      return;
+    }
+
+    const globalClicksKey = `stats:${postId}:globalClicks`;
+    await redis.set(globalClicksKey, totalClicks.toString());
+
+    res.json({
+      status: 'success',
+      message: `Global clicks set to ${totalClicks}`,
+      totalClicks,
+    });
+  } catch (error) {
+    console.error(`Error updating global clicks: ${error}`);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update global clicks',
+    });
+  }
+});
+
+// Internal: Recalculate global clicks from all players
+router.post('/internal/recalculate-global-clicks', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).json({
+        status: 'error',
+        message: 'postId is required',
+      });
+      return;
+    }
+
+    const globalClicksKey = `stats:${postId}:globalClicks`;
+    const clicksKey = `leaderboard:${postId}:clicks`;
+
+    // Get all players' click counts from the sorted set
+    const allPlayerClicks = await redis.zRange(clicksKey, 0, -1, { by: 'rank' });
+
+    if (!allPlayerClicks || allPlayerClicks.length === 0) {
+      res.json({
+        status: 'info',
+        message: 'No player click data found yet. Players need to save their game at least once after this update.',
+        totalClicks: 0,
+        playersScanned: 0,
+      });
+      return;
+    }
+
+    // Sum all clicks
+    let totalClicks = 0;
+    for (const entry of allPlayerClicks) {
+      totalClicks += entry.score;
+    }
+
+    // Update global counter
+    await redis.set(globalClicksKey, totalClicks.toString());
+
+    res.json({
+      status: 'success',
+      message: 'Global clicks recalculated successfully',
+      totalClicks,
+      playersScanned: allPlayerClicks.length,
+      players: allPlayerClicks.map(p => ({
+        playerName: p.member,
+        clicks: p.score,
+      })),
+    });
+  } catch (error) {
+    console.error(`Error recalculating global clicks: ${error}`);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to recalculate global clicks',
+    });
+  }
+});
+
+// Internal: Diagnostic - Check global clicks data
+router.get('/internal/diagnostic-clicks', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).json({ error: 'postId is required' });
+      return;
+    }
+
+    const globalClicksKey = `stats:${postId}:globalClicks`;
+    const moneyKey = `leaderboard:${postId}:money`;
+
+    const [globalClicksStr, totalPlayers] = await Promise.all([
+      redis.get(globalClicksKey),
+      redis.zCard(moneyKey),
+    ]);
+
+    const globalClicks = globalClicksStr ? parseInt(globalClicksStr, 10) : 0;
+
+    // Get all players from leaderboard (we have playerNames but not userIds)
+    const allPlayers = await redis.zRange(moneyKey, 0, -1, { by: 'rank', reverse: true });
+
+    res.json({
+      postId,
+      currentGlobalClicks: globalClicks,
+      totalPlayersInLeaderboard: totalPlayers,
+      note: 'Game states are stored by userId, not playerName. Cannot scan all game states without userId mapping.',
+      suggestion: 'To calculate true total: Export player data, manually sum clicks from each player\'s game state if you have access to individual saves.',
+      playersInLeaderboard: allPlayers.map(p => ({
+        playerName: p.member,
+        money: p.score,
+      })),
+    });
+  } catch (error) {
+    console.error('Diagnostic error:', error);
+    res.status(500).json({ error: 'Failed to get diagnostic data' });
   }
 });
 

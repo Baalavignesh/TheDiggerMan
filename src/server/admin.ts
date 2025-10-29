@@ -13,13 +13,17 @@ export async function getAdminData(postId: string) {
     const moneyKey = `leaderboard:${postId}:money`;
     const depthKey = `leaderboard:${postId}:depth`;
     const nameIndexKey = `leaderboard:${postId}:name`;
+    const globalClicksKey = `stats:${postId}:globalClicks`;
 
-    const [moneyLeaderboard, depthLeaderboard, nameIndex, totalPlayers] = await Promise.all([
+    const [moneyLeaderboard, depthLeaderboard, nameIndex, totalPlayers, globalClicksStr] = await Promise.all([
       redis.zRange(moneyKey, 0, -1, { by: 'rank', reverse: true }), // Get all entries
       redis.zRange(depthKey, 0, -1, { by: 'rank', reverse: true }),
       redis.hGetAll(nameIndexKey),
       redis.zCard(moneyKey),
+      redis.get(globalClicksKey),
     ]);
+
+    const globalClicks = globalClicksStr ? parseInt(globalClicksStr, 10) : 0;
 
     // Combine leaderboards
     const playersMap = new Map<string, LeaderboardEntry>();
@@ -62,6 +66,7 @@ export async function getAdminData(postId: string) {
     return {
       postId,
       totalPlayers,
+      globalClicks,
       registeredNames: Object.keys(nameIndex || {}).length,
       moneyLeaderboard: players.sort((a, b) => b.money - a.money).slice(0, 20),
       depthLeaderboard: players.sort((a, b) => b.depth - a.depth).slice(0, 20),
@@ -192,11 +197,11 @@ export function generateAdminHTML(data: any): string {
     <div class="stats">
       <div class="stat-card">
         <div class="stat-value">${data.totalPlayers}</div>
-        <div class="stat-label">Total Players</div>
+        <div class="stat-label">Total Miners</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">${data.registeredNames}</div>
-        <div class="stat-label">Registered Names</div>
+        <div class="stat-value">${formatNumber(data.globalClicks)}</div>
+        <div class="stat-label">Global Clicks</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">$${formatMoney(data.moneyLeaderboard[0]?.money || 0)}</div>
@@ -211,7 +216,22 @@ export function generateAdminHTML(data: any): string {
     <div style="text-align: center; margin-bottom: 30px;">
       <button class="export-btn" onclick="exportJSON()">📥 Export as JSON</button>
       <button class="export-btn" onclick="exportCSV()">📊 Export as CSV</button>
+      <button class="export-btn" onclick="recalculateClicks()">🔢 Recalculate Global Clicks</button>
+      <button class="export-btn" onclick="showMigrateDialog()">✏️ Manually Set Clicks</button>
     </div>
+
+    <div id="migrateDialog" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2a2a2a; padding: 30px; border: 3px solid #ffd700; border-radius: 10px; z-index: 1000; box-shadow: 0 10px 50px rgba(0,0,0,0.8);">
+      <h3 style="color: #ffd700; margin-top: 0;">Set Global Clicks Counter</h3>
+      <p style="color: #aaa; margin-bottom: 20px;">Current value: <strong style="color: #00ff00;">${formatNumber(data.globalClicks)}</strong></p>
+      <p style="color: #aaa; margin-bottom: 20px; font-size: 13px;">⚠️ This will overwrite the current global clicks counter. Use this for manual migration or correction.</p>
+      <input type="number" id="migrateClicksInput" placeholder="Enter total clicks" style="width: 100%; padding: 10px; margin-bottom: 15px; background: #1a1a1a; border: 2px solid #ffd700; color: #00ff00; font-size: 16px; border-radius: 5px;" />
+      <div style="display: flex; gap: 10px;">
+        <button class="export-btn" onclick="executeMigration()" style="flex: 1;">✅ Set Value</button>
+        <button class="export-btn" onclick="closeMigrateDialog()" style="flex: 1; background: #666;">❌ Cancel</button>
+      </div>
+      <div id="migrateStatus" style="margin-top: 15px; padding: 10px; border-radius: 5px; display: none;"></div>
+    </div>
+    <div id="migrateOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 999;" onclick="closeMigrateDialog()"></div>
 
     <div class="grid">
       <div class="section">
@@ -323,6 +343,94 @@ export function generateAdminHTML(data: any): string {
       a.href = url;
       a.download = 'thedigger-leaderboard-' + new Date().toISOString().split('T')[0] + '.csv';
       a.click();
+    }
+
+    async function recalculateClicks() {
+      if (!confirm('This will recalculate global clicks from all players who have saved their game. Continue?')) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/internal/recalculate-global-clicks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json();
+
+        if (result.status === 'success') {
+          alert(\`✅ Success!\\n\\nGlobal clicks recalculated: \${result.totalClicks.toLocaleString()}\\nPlayers scanned: \${result.playersScanned}\\n\\nPage will reload.\`);
+          location.reload();
+        } else if (result.status === 'info') {
+          alert(\`ℹ️ Info\\n\\n\${result.message}\\n\\nPlayers need to save their game at least once after this update.\`);
+        } else {
+          alert('❌ Error: ' + result.message);
+        }
+      } catch (error) {
+        alert('❌ Error recalculating clicks: ' + error.message);
+      }
+    }
+
+    function showMigrateDialog() {
+      document.getElementById('migrateDialog').style.display = 'block';
+      document.getElementById('migrateOverlay').style.display = 'block';
+      document.getElementById('migrateClicksInput').value = '';
+      document.getElementById('migrateStatus').style.display = 'none';
+    }
+
+    function closeMigrateDialog() {
+      document.getElementById('migrateDialog').style.display = 'none';
+      document.getElementById('migrateOverlay').style.display = 'none';
+    }
+
+    async function executeMigration() {
+      const input = document.getElementById('migrateClicksInput');
+      const statusDiv = document.getElementById('migrateStatus');
+      const value = parseInt(input.value, 10);
+
+      if (isNaN(value) || value < 0) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'rgba(255, 0, 0, 0.2)';
+        statusDiv.style.border = '1px solid #ff0000';
+        statusDiv.style.color = '#ff0000';
+        statusDiv.textContent = '❌ Please enter a valid non-negative number';
+        return;
+      }
+
+      try {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'rgba(255, 215, 0, 0.2)';
+        statusDiv.style.border = '1px solid #ffd700';
+        statusDiv.style.color = '#ffd700';
+        statusDiv.textContent = '⏳ Updating global clicks counter...';
+
+        const response = await fetch('/internal/update-global-clicks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ totalClicks: value })
+        });
+
+        const result = await response.json();
+
+        if (result.status === 'success') {
+          statusDiv.style.background = 'rgba(0, 255, 0, 0.2)';
+          statusDiv.style.border = '1px solid #00ff00';
+          statusDiv.style.color = '#00ff00';
+          statusDiv.textContent = \`✅ Success! Global clicks set to \${value.toLocaleString()}\`;
+
+          setTimeout(() => {
+            location.reload();
+          }, 2000);
+        } else {
+          throw new Error(result.message || 'Unknown error');
+        }
+      } catch (error) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'rgba(255, 0, 0, 0.2)';
+        statusDiv.style.border = '1px solid #ff0000';
+        statusDiv.style.color = '#ff0000';
+        statusDiv.textContent = '❌ Error: ' + error.message;
+      }
     }
   </script>
 </body>

@@ -8,6 +8,7 @@ import Modal from './Modal';
 import AchievementsModal from './AchievementsModal';
 import AchievementToast from './AchievementToast';
 import AutoDiggersViewerModal from './AutoDiggersViewerModal';
+import GlobalStatsModal from './GlobalStatsModal';
 import { ACHIEVEMENTS, checkAchievement, Achievement } from './achievements';
 
 // Sound pooling for high-performance rapid taps
@@ -207,6 +208,7 @@ export const App = () => {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showAutoDiggersViewer, setShowAutoDiggersViewer] = useState(false);
+  const [showGlobalStats, setShowGlobalStats] = useState(false);
   const [showCover, setShowCover] = useState(true);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [, setPlayerStanding] = useState<number | null>(null);
@@ -1211,6 +1213,16 @@ export const App = () => {
           >
             <i className="fas fa-crown"></i>
           </button>
+          <button
+            className="pixel-btn icon-btn global-stats-icon"
+            title="Global Statistics"
+            onClick={() => {
+              playSelectSound();
+              setShowGlobalStats(true);
+            }}
+          >
+            <i className="fas fa-globe"></i>
+          </button>
           <button className="pixel-btn icon-btn menu-btn" onClick={() => { playSelectSound(); setShowMenu(true); }}>
             <i className="fas fa-bars"></i>
           </button>
@@ -1681,6 +1693,12 @@ export const App = () => {
         autoDiggers={gameState.autoDiggers}
         currentMoney={gameState.money}
         onBuyAutoDigger={buyMultipleAutoDiggers}
+      />
+
+      {/* Global Stats Modal */}
+      <GlobalStatsModal
+        isOpen={showGlobalStats}
+        onClose={() => { playSelectSound(); setShowGlobalStats(false); }}
       />
 
       {/* Achievement Toast */}
