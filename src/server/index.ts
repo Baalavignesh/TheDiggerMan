@@ -1,6 +1,7 @@
 import express from 'express';
 import { redis, reddit, createServer, context, getServerPort } from '@devvit/web/server';
 import { createPost } from './core/post';
+import { getAdminData, generateAdminHTML } from './admin';
 
 const app = express();
 
@@ -410,6 +411,45 @@ router.post('/internal/update-leaderboard', async (req, res): Promise<void> => {
       status: 'error',
       message: 'Failed to update leaderboard',
     });
+  }
+});
+
+// Admin: View database (HTML page)
+router.get('/admin', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).send('<h1>Error: postId is required</h1>');
+      return;
+    }
+
+    const data = await getAdminData(postId);
+    const html = generateAdminHTML(data);
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    console.error('Error fetching admin data:', error);
+    res.status(500).send('<h1>Error loading admin panel</h1><pre>' + error + '</pre>');
+  }
+});
+
+// Admin: Get database as JSON
+router.get('/admin/json', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).json({ error: 'postId is required' });
+      return;
+    }
+
+    const data = await getAdminData(postId);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching admin data:', error);
+    res.status(500).json({ error: 'Failed to fetch admin data' });
   }
 });
 
