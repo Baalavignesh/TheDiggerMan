@@ -507,10 +507,6 @@ router.post('/internal/migrate-global-clicks', async (_req, res): Promise<void> 
       return;
     }
 
-    let totalClicks = 0;
-    let playersScanned = 0;
-    let playersWithClicks = 0;
-
     // We can't scan by pattern, so we'll need to try to get game states
     // Since we don't have userId mappings, we'll use a different approach:
     // Get all leaderboard players and try to fetch their states
@@ -666,6 +662,141 @@ router.get('/internal/diagnostic-clicks', async (_req, res): Promise<void> => {
   } catch (error) {
     console.error('Diagnostic error:', error);
     res.status(500).json({ error: 'Failed to get diagnostic data' });
+  }
+});
+
+// API: Post activity to feed
+router.post('/api/post-activity', async (req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+    const { playerName, activityType, details } = req.body;
+
+    if (!postId || !playerName || !activityType) {
+      res.status(400).json({ success: false, error: 'Missing required fields' });
+      return;
+    }
+
+    const activityKey = `activity:${postId}`;
+    const timestamp = Date.now();
+
+    const activity = {
+      playerName,
+      activityType,
+      details: details || {},
+      timestamp,
+    };
+
+    // Store in sorted set with timestamp as score (keep last 100)
+    await redis.zAdd(activityKey, { member: JSON.stringify(activity), score: timestamp });
+
+    // Trim to keep only last 100 activities
+    const count = await redis.zCard(activityKey);
+    if (count > 100) {
+      await redis.zRemRangeByRank(activityKey, 0, count - 101);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to post activity:', error);
+    res.status(500).json({ success: false, error: 'Failed to post activity' });
+  }
+});
+
+// API: Get recent activities
+router.get('/api/recent-activities', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).json({ error: 'postId is required' });
+      return;
+    }
+
+    const activityKey = `activity:${postId}`;
+
+    // Get last 50 activities
+    const activities = await redis.zRange(activityKey, 0, 49, { by: 'rank', reverse: true });
+
+    const parsedActivities = activities.map(entry => {
+      try {
+        return JSON.parse(entry.member);
+      } catch {
+        return null;
+      }
+    }).filter(a => a !== null);
+
+    res.json({ activities: parsedActivities });
+  } catch (error) {
+    console.error('Failed to get activities:', error);
+    res.status(500).json({ error: 'Failed to get activities' });
+  }
+});
+
+// API: Get global goals
+router.get('/api/global-goals', async (_req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+
+    if (!postId) {
+      res.status(400).json({ error: 'postId is required' });
+      return;
+    }
+
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const goalsKey = `goals:${postId}:${today}`;
+
+    // Define daily goals
+    const dailyGoals = [
+      { id: 'depth', name: 'Community Depth', target: 1000000, unit: 'ft', reward: '2x Money for 10 minutes' },
+      { id: 'ores', name: 'Ore Collection', target: 50000, unit: 'ores', reward: '1.5x Depth for 10 minutes' },
+      { id: 'money', name: 'Wealth Generation', target: 10000000, unit: '$', reward: 'All auto-diggers +20% speed for 10 minutes' },
+    ];
+
+    // Get current progress
+    const progress = await redis.hGetAll(goalsKey);
+
+    const goalsWithProgress = dailyGoals.map(goal => ({
+      ...goal,
+      current: parseInt(progress[goal.id] || '0', 10),
+      percentage: Math.min(100, Math.floor((parseInt(progress[goal.id] || '0', 10) / goal.target) * 100)),
+      completed: parseInt(progress[goal.id] || '0', 10) >= goal.target,
+    }));
+
+    res.json({ goals: goalsWithProgress, date: today });
+  } catch (error) {
+    console.error('Failed to get global goals:', error);
+    res.status(500).json({ error: 'Failed to get global goals' });
+  }
+});
+
+// API: Contribute to global goal (passive tracking from saves)
+router.post('/api/contribute-to-goals', async (req, res): Promise<void> => {
+  try {
+    const { postId } = context;
+    const { depth, ores, money } = req.body;
+
+    if (!postId) {
+      res.status(400).json({ success: false, error: 'postId is required' });
+      return;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const goalsKey = `goals:${postId}:${today}`;
+
+    // Increment goal progress
+    const updates: any = {};
+    if (depth) updates.depth = depth;
+    if (ores) updates.ores = ores;
+    if (money) updates.money = money;
+
+    for (const [key, value] of Object.entries(updates)) {
+      await redis.hIncrBy(goalsKey, key, Math.floor(value as number));
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to contribute to goals:', error);
+    res.status(500).json({ success: false, error: 'Failed to contribute' });
   }
 });
 

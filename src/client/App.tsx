@@ -9,22 +9,39 @@ import AchievementsModal from './AchievementsModal';
 import AchievementToast from './AchievementToast';
 import AutoDiggersViewerModal from './AutoDiggersViewerModal';
 import GlobalStatsModal from './GlobalStatsModal';
+import ActivityFeedModal from './ActivityFeedModal';
+import GlobalGoalsModal from './GlobalGoalsModal';
 import { ACHIEVEMENTS, checkAchievement, Achievement } from './achievements';
+import { postActivity, contributeToGoals, MilestoneTracker } from './communityHelpers';
 
 // Sound pooling for high-performance rapid taps
 let backgroundMusic: HTMLAudioElement | null = null;
 const SOUND_POOL_SIZE = 10;
-let miningSoundPool: HTMLAudioElement[] = [];
-let selectSoundPool: HTMLAudioElement[] = [];
+const miningSoundPool: HTMLAudioElement[] = [];
+const selectSoundPool: HTMLAudioElement[] = [];
 let currentMiningIndex = 0;
 let currentSelectIndex = 0;
 let lastMiningPlayTime = 0;
 const MINING_SOUND_THROTTLE = 50;
 const MAX_ACTIVE_SPARKS = 30;
 const MAX_FALLING_ORES = 40;
+const CONTRIBUTION_THRESHOLDS = {
+  depth: 20,
+  ores: 20,
+  money: 2000,
+};
+const CONTRIBUTION_FLUSH_INTERVAL = 5000;
+const DEPTH_ACTIVITY_STEP = 1_000_000;
+const MONEY_ACTIVITY_STEP = 1_000_000;
 
-const isMobileDevice = () =>
-  typeof window !== 'undefined' && window.matchMedia('(any-pointer: coarse)').matches;
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false;
+  // Check both pointer type AND screen width for more accurate mobile detection
+  const hasCoarsePointer = window.matchMedia('(any-pointer: coarse)').matches;
+  const isNarrowScreen = window.innerWidth < 768;
+  // Only consider it mobile if BOTH conditions are true
+  return hasCoarsePointer && isNarrowScreen;
+};
 
 // sanitizePlayerName removed - using Reddit username directly
 
@@ -209,6 +226,8 @@ export const App = () => {
   const [showMenu, setShowMenu] = useState(false);
   const [showAutoDiggersViewer, setShowAutoDiggersViewer] = useState(false);
   const [showGlobalStats, setShowGlobalStats] = useState(false);
+  const [showActivityFeed, setShowActivityFeed] = useState(false);
+  const [showGlobalGoals, setShowGlobalGoals] = useState(false);
   const [showCover, setShowCover] = useState(true);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [, setPlayerStanding] = useState<number | null>(null);
@@ -225,12 +244,103 @@ export const App = () => {
   const [gloryBuffTimeRemaining, setGloryBuffTimeRemaining] = useState(0);
 
   const musicEnabledRef = useRef(true);
+  const milestoneTrackerRef = useRef(new MilestoneTracker());
+  const contributionBufferRef = useRef({ depth: 0, ores: 0, money: 0 });
+  const pendingContributionFlushRef = useRef<Promise<void> | null>(null);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
+
+  const flushGoalContributions = useCallback(
+    async (force = false) => {
+      if (!ready) {
+        return;
+      }
+
+      if (pendingContributionFlushRef.current) {
+        if (force) {
+          try {
+            await pendingContributionFlushRef.current;
+          } catch {
+            // Error already handled below
+          }
+        } else {
+          return;
+        }
+      }
+
+      const buffer = contributionBufferRef.current;
+      const depthInt = Math.floor(buffer.depth);
+      const oresInt = Math.floor(buffer.ores);
+      const moneyInt = Math.floor(buffer.money);
+
+      if (depthInt === 0 && oresInt === 0 && moneyInt === 0) {
+        if (force) {
+          // Nothing to send, but ensure pending promise cleared
+          pendingContributionFlushRef.current = null;
+        }
+        return;
+      }
+
+      buffer.depth -= depthInt;
+      buffer.ores -= oresInt;
+      buffer.money -= moneyInt;
+
+      const flushPromise = contributeToGoals(depthInt, oresInt, moneyInt)
+        .catch((error) => {
+          console.error('Failed to contribute to goals:', error);
+          contributionBufferRef.current.depth += depthInt;
+          contributionBufferRef.current.ores += oresInt;
+          contributionBufferRef.current.money += moneyInt;
+        })
+        .finally(() => {
+          pendingContributionFlushRef.current = null;
+        });
+
+      pendingContributionFlushRef.current = flushPromise;
+      await flushPromise;
+    },
+    [ready]
+  );
+
+  const queueGoalContribution = useCallback(
+    (type: 'depth' | 'ores' | 'money', amount: number) => {
+      if (!ready || amount <= 0 || !Number.isFinite(amount)) {
+        return;
+      }
+
+      contributionBufferRef.current[type] += amount;
+
+      const threshold = CONTRIBUTION_THRESHOLDS[type];
+      if (contributionBufferRef.current[type] >= threshold) {
+        void flushGoalContributions(false);
+      }
+    },
+    [flushGoalContributions, ready]
+  );
 
   useEffect(() => {
     musicEnabledRef.current = musicEnabled;
   }, [musicEnabled]);
+
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void flushGoalContributions(false);
+    }, CONTRIBUTION_FLUSH_INTERVAL);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [flushGoalContributions, ready]);
+
+  useEffect(() => {
+    return () => {
+      void flushGoalContributions(true);
+    };
+  }, [flushGoalContributions]);
 
   // Reddit username is automatically set from server
 
@@ -295,6 +405,23 @@ export const App = () => {
   const lastSnapshotRef = useRef({ money: 0, depth: 0, time: Date.now() });
   const gameStateRef = useRef(gameState);
   const saveToastTimeoutRef = useRef<number | null>(null);
+  const activityMilestonesRef = useRef({ depth: 0, money: 0 });
+
+  const postPlayerActivity = useCallback(
+    (activityType: string, details: Record<string, unknown>) => {
+      if (!ready) {
+        return;
+      }
+
+      const playerName = gameStateRef.current.playerName;
+      if (!playerName) {
+        return;
+      }
+
+      void postActivity(playerName, activityType, details);
+    },
+    [ready]
+  );
 
   const currentTool = useMemo(
     () => TOOLS.find((t) => t.id === gameState.currentTool) ?? TOOLS[0],
@@ -307,6 +434,30 @@ export const App = () => {
     latestValuesRef.current = { money: gameState.money, depth: gameState.depth };
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  useEffect(() => {
+    if (!gameState.playerName) {
+      return;
+    }
+
+    const milestoneIndex = Math.floor(gameState.depth / DEPTH_ACTIVITY_STEP);
+    if (milestoneIndex > activityMilestonesRef.current.depth) {
+      activityMilestonesRef.current.depth = milestoneIndex;
+      postPlayerActivity('depth_milestone', { depth: Math.floor(gameState.depth) });
+    }
+  }, [gameState.depth, gameState.playerName, postPlayerActivity]);
+
+  useEffect(() => {
+    if (!gameState.playerName) {
+      return;
+    }
+
+    const milestoneIndex = Math.floor(gameState.money / MONEY_ACTIVITY_STEP);
+    if (milestoneIndex > activityMilestonesRef.current.money) {
+      activityMilestonesRef.current.money = milestoneIndex;
+      postPlayerActivity('money_milestone', { money: Math.floor(gameState.money) });
+    }
+  }, [gameState.money, gameState.playerName, postPlayerActivity]);
 
   useEffect(() => {
     return () => {
@@ -437,6 +588,8 @@ export const App = () => {
           saveToastTimeoutRef.current = window.setTimeout(() => {
             setSaveToastVisible(false);
           }, 2000);
+
+          await flushGoalContributions(true);
         } else if (manual) {
           setManualSavePending(false);
         }
@@ -447,7 +600,7 @@ export const App = () => {
         }
       }
     },
-    [ready]
+    [flushGoalContributions, ready]
   );
 
   const handleManualSave = useCallback(() => {
@@ -549,11 +702,20 @@ export const App = () => {
         .map(id => ACHIEVEMENTS.find(a => a.id === id))
         .filter(Boolean) as Achievement[];
 
+      newAchievements.forEach((achievement) => {
+        if (milestoneTrackerRef.current.shouldTrack(`achievement:${achievement.id}`)) {
+          postPlayerActivity('achievement_unlock', {
+            achievementId: achievement.id,
+            achievementName: achievement.name,
+          });
+        }
+      });
+
       setAchievementQueue(prev => [...prev, ...newAchievements]);
     }
   }, [gameState.depth, gameState.money, gameState.totalClicks, gameState.currentTool,
       gameState.oreInventory, gameState.autoDiggers, gameState.discoveredOres,
-      gameState.discoveredBiomes, ready]);
+      gameState.discoveredBiomes, postPlayerActivity, ready]);
 
   // Process achievement toast queue
   useEffect(() => {
@@ -668,13 +830,17 @@ export const App = () => {
       };
     });
 
+    queueGoalContribution('depth', 1);
+    queueGoalContribution('money', bonusMoney);
+    queueGoalContribution('ores', 1);
+
     const biome = currentBiome;
     const nextOreId = getRandomOre(biome.ores);
     const nextOreVariant = Math.floor(Math.random() * 3) + 1;
 
     setCurrentOreId(nextOreId);
     setCurrentOreVariant(nextOreVariant);
-  }, [currentOreId, currentTool, currentBiome, createFallingOres, playMiningSoundCallback, gloryBuffActive]);
+  }, [currentOreId, currentTool, currentBiome, createFallingOres, playMiningSoundCallback, gloryBuffActive, queueGoalContribution]);
 
   // Handle smash animation complete
   const handleSmashComplete = useCallback(() => {
@@ -698,9 +864,16 @@ export const App = () => {
           money: prev.money - tool.cost,
           currentTool: tool.id,
         }));
+
+        if (milestoneTrackerRef.current.shouldTrack(`tool:${tool.id}`)) {
+          postPlayerActivity('tool_purchase', {
+            toolId: tool.id,
+            toolName: tool.name,
+          });
+        }
       }
     },
-    [gameState.money, gameState.currentTool, playSelectSound]
+    [gameState.money, gameState.currentTool, playSelectSound, postPlayerActivity]
   );
 
   // Buy auto-digger
@@ -719,9 +892,17 @@ export const App = () => {
             [digger.id]: currentCount + 1,
           },
         }));
+
+        if (currentCount === 0 && milestoneTrackerRef.current.shouldTrack(`auto_digger:${digger.id}`)) {
+          postPlayerActivity('auto_digger_purchase', {
+            diggerId: digger.id,
+            diggerName: digger.name,
+            count: 1,
+          });
+        }
       }
     },
-    [gameState.money, gameState.autoDiggers, playSelectSound]
+    [gameState.money, gameState.autoDiggers, playSelectSound, postPlayerActivity]
   );
 
   // Buy multiple auto-diggers at once
@@ -745,28 +926,48 @@ export const App = () => {
             [digger.id]: currentCount + count,
           },
         }));
+
+        if (currentCount === 0 && milestoneTrackerRef.current.shouldTrack(`auto_digger:${digger.id}`)) {
+          postPlayerActivity('auto_digger_purchase', {
+            diggerId: digger.id,
+            diggerName: digger.name,
+            count,
+          });
+        }
       }
     },
-    [gameState.money, gameState.autoDiggers, playSelectSound]
+    [gameState.money, gameState.autoDiggers, playSelectSound, postPlayerActivity]
   );
 
   // Auto-production tick (60fps)
   useEffect(() => {
-    if (totalDepthProduction <= 0) return;
+    if (totalDepthProduction <= 0) {
+      return;
+    }
 
     const interval = setInterval(() => {
       const now = Date.now();
       const deltaTime = (now - lastTickRef.current) / 1000;
       lastTickRef.current = now;
 
+      if (deltaTime <= 0) {
+        return;
+      }
+
+      const depthGain = totalDepthProduction * deltaTime;
+
+      if (depthGain > 0) {
+        queueGoalContribution('depth', depthGain);
+      }
+
       setGameState((prev) => ({
         ...prev,
-        depth: prev.depth + totalDepthProduction * deltaTime,
+        depth: prev.depth + depthGain,
       }));
     }, 1000 / 60);
 
     return () => clearInterval(interval);
-  }, [totalDepthProduction]);
+  }, [queueGoalContribution, totalDepthProduction]);
 
   // Initialize auto-digger states
   useEffect(() => {
@@ -810,13 +1011,22 @@ export const App = () => {
   // Track biome changes
   const prevBiomeRef = useRef<number>(0);
   useEffect(() => {
-    const currentBiomeId = getBiome(gameState.depth).id;
+    const currentBiome = getBiome(gameState.depth);
+    const currentBiomeId = currentBiome.id;
+    const alreadyDiscovered = gameStateRef.current.discoveredBiomes.has(currentBiomeId);
 
     setGameState((prev) => {
       const newDiscoveredBiomes = new Set(prev.discoveredBiomes);
       newDiscoveredBiomes.add(currentBiomeId);
       return { ...prev, discoveredBiomes: newDiscoveredBiomes };
     });
+
+    if (!alreadyDiscovered && milestoneTrackerRef.current.shouldTrack(`biome:${currentBiomeId}`)) {
+      postPlayerActivity('biome_discover', {
+        biomeId: currentBiomeId,
+        biomeName: currentBiome.name,
+      });
+    }
 
     if (prevBiomeRef.current !== 0 && prevBiomeRef.current !== currentBiomeId) {
       const newBiome = getBiome(gameState.depth);
@@ -849,7 +1059,7 @@ export const App = () => {
     }
 
     prevBiomeRef.current = currentBiomeId;
-  }, [gameState.depth]);
+  }, [gameState.depth, postPlayerActivity]);
 
   // Auto-mining logic
   useEffect(() => {
@@ -894,6 +1104,9 @@ export const App = () => {
 
             createFallingOres(currentOreId);
 
+            queueGoalContribution('money', oreDetails.value);
+            queueGoalContribution('ores', 1);
+
             setGameState((prevState) => {
               const newDiscoveredOres = new Set(prevState.discoveredOres);
               newDiscoveredOres.add(currentOreId);
@@ -934,7 +1147,7 @@ export const App = () => {
     return () => {
       Object.values(intervals).forEach((interval) => clearInterval(interval));
     };
-  }, [gameState.autoDiggers, createFallingOres]);
+  }, [gameState.autoDiggers, createFallingOres, queueGoalContribution]);
 
   // Auto-save every 30 seconds
   useEffect(() => {
@@ -1114,7 +1327,7 @@ export const App = () => {
             {/* Background decorative elements */}
             <div className="cover-background-elements">
               {/* Background ores - more scattered */}
-              {['stone', 'gold', 'emerald', 'ruby', 'diamond', 'iron', 'coal', 'copper', 'stone', 'gold', 'emerald', 'ruby', 'diamond', 'iron'].map((ore, index) => (
+              {['stone', 'gold', 'emerald', 'ruby', 'diamond', 'amethyst', 'sapphire', 'sandstone', 'stone', 'gold', 'emerald', 'ruby', 'diamond', 'amethyst'].map((ore, index) => (
                 <img
                   key={`cover-ore-${index}`}
                   src={getOreImagePath(ore, (index % 3) + 1)}
@@ -1222,6 +1435,26 @@ export const App = () => {
             }}
           >
             <i className="fas fa-globe"></i>
+          </button>
+          <button
+            className="pixel-btn icon-btn activity-feed-icon"
+            title="Activity Feed"
+            onClick={() => {
+              playSelectSound();
+              setShowActivityFeed(true);
+            }}
+          >
+            <i className="fas fa-comments"></i>
+          </button>
+          <button
+            className="pixel-btn icon-btn global-goals-icon"
+            title="Community Goals"
+            onClick={() => {
+              playSelectSound();
+              setShowGlobalGoals(true);
+            }}
+          >
+            <i className="fas fa-bullseye"></i>
           </button>
           <button className="pixel-btn icon-btn menu-btn" onClick={() => { playSelectSound(); setShowMenu(true); }}>
             <i className="fas fa-bars"></i>
@@ -1699,6 +1932,18 @@ export const App = () => {
       <GlobalStatsModal
         isOpen={showGlobalStats}
         onClose={() => { playSelectSound(); setShowGlobalStats(false); }}
+      />
+
+      {/* Activity Feed Modal */}
+      <ActivityFeedModal
+        isOpen={showActivityFeed}
+        onClose={() => { playSelectSound(); setShowActivityFeed(false); }}
+      />
+
+      {/* Global Goals Modal */}
+      <GlobalGoalsModal
+        isOpen={showGlobalGoals}
+        onClose={() => { playSelectSound(); setShowGlobalGoals(false); }}
       />
 
       {/* Achievement Toast */}

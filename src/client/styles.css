@@ -1438,7 +1438,7 @@ i, .fa, .fas, .far, .fab {
   height: 100%;
   pointer-events: none;
   overflow: hidden;
-  z-index: 1;
+  z-index: 15;
   border-radius: 20px;
 }
 
@@ -1448,7 +1448,7 @@ i, .fa, .fas, .far, .fab {
   height: 40px;
   image-rendering: pixelated;
   top: -100px;
-  opacity: 0.08;
+  opacity: 0.12;
   animation: oreFall linear forwards;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
@@ -3583,5 +3583,323 @@ i, .fa, .fas, .far, .fab {
 
   .info-text {
     font-size: 12px;
+  }
+}
+
+/* ============================================
+   ACTIVITY FEED MODAL
+   ============================================ */
+
+.activity-feed-modal .modal-content {
+  background: linear-gradient(135deg, #1e3a2e 0%, #2d5a45 50%, #1e3a2e 100%);
+  border: 3px solid #4caf50;
+  max-width: 600px;
+  max-height: 70vh;
+}
+
+.activity-feed-content {
+  padding: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.activities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.activity-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border-left: 3px solid #4caf50;
+  animation: slideInFromLeft 0.3s ease-out;
+  transition: all 0.3s ease;
+}
+
+.activity-item:hover {
+  background: rgba(76, 175, 80, 0.2);
+  transform: translateX(5px);
+}
+
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.activity-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(76, 175, 80, 0.2);
+  border-radius: 50%;
+}
+
+.activity-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-message {
+  color: #e0e0e0;
+  font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+
+.player-name {
+  color: #4caf50;
+  font-weight: bold;
+}
+
+.activity-time {
+  color: #888;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.loading-activities,
+.no-activities {
+  text-align: center;
+  padding: 40px 20px;
+  color: #aaa;
+}
+
+.loading-activities i,
+.no-activities i {
+  font-size: 32px;
+  color: #4caf50;
+  margin-bottom: 15px;
+  display: block;
+}
+
+.no-activities .hint {
+  font-size: 13px;
+  color: #666;
+  margin-top: 10px;
+}
+
+/* ============================================
+   GLOBAL GOALS MODAL
+   ============================================ */
+
+.global-goals-modal .modal-content {
+  background: #1f1f24;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  max-width: 680px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+}
+
+.global-goals-content {
+  padding: 20px;
+}
+
+.goals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.goal-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 18px;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.goal-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.goal-card.completed {
+  border-color: rgba(72, 187, 120, 0.5);
+  background: rgba(72, 187, 120, 0.1);
+}
+
+.goal-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.goal-icon-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.goal-icon {
+  font-size: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f5f5;
+}
+
+.goal-card.completed .goal-icon {
+  background: rgba(72, 187, 120, 0.2);
+  color: #48bb78;
+}
+
+.goal-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.goal-name {
+  font-size: 17px;
+  font-weight: 600;
+  color: #f5f5f5;
+}
+
+.goal-card.completed .goal-name {
+  color: #e8fff3;
+}
+
+.goal-target-label {
+  font-size: 12px;
+  color: #9ea3af;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.goal-completed-badge {
+  background: #48bb78;
+  color: #111;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.goal-progress-section {
+  margin-bottom: 16px;
+}
+
+.goal-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.goal-current {
+  color: #f5f5f5;
+  font-weight: 700;
+  font-size: 22px;
+}
+
+.goal-stats-label {
+  color: #9ea3af;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.goal-progress-bar {
+  width: 100%;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.goal-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff9d4d 0%, #ffc56d 100%);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
+}
+
+.goal-card.completed .goal-progress-fill {
+  background: linear-gradient(90deg, #48bb78 0%, #8bd4a2 100%);
+}
+
+.goal-percentage {
+  color: #1b1d23;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.goal-reward {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 6px;
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.goal-reward-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ea3af;
+}
+
+.goal-reward-text {
+  color: #f5f5f5;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.loading-goals {
+  text-align: center;
+  padding: 40px 20px;
+  color: #9ea3af;
+}
+
+.loading-goals i {
+  font-size: 32px;
+  color: #ffb067;
+  margin-bottom: 15px;
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .activity-feed-modal .modal-content,
+  .global-goals-modal .modal-content {
+    max-width: 95%;
+    margin: 10px;
+  }
+
+  .goal-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .goal-current {
+    font-size: 18px;
   }
 }
